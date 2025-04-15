@@ -15,6 +15,7 @@ f = 2
 epsilon = 0.1
 initial_states = [2, 4.8, 3.7, 3.5, 2.8, 2.5, 0.5, 4.7, 1, 3.6]
 attacked = [True, False, False, False, False, False, False, False, True, False]
+indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 att_v = {0: 2, 8: 1}
 
 neighbors = [
@@ -162,4 +163,4 @@ def run_reputation_simulation(initial_states, attacked, max_iter, f, epsilon, at
 
 states = run_reputation_simulation(initial_states, attacked, max_iter, f, epsilon, att_v, neighbors)
 correct_consensus = np.average(initial_states)
-plot_state(states, correct_consensus, att_v, title="Reputation Evolution", xlabel="Iterations", ylabel="States")
+plot_state(states, correct_consensus, att_v, indices, title="Reputation Evolution", xlabel="Iterations", ylabel="States")

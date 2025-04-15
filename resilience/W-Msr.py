@@ -39,7 +39,7 @@ att_v = {0: (lambda t: 0.3), 8: (lambda t: 0.8)}
 # Initial state for agents.
 x0 = [0.1, 0.3, 0.7, 0.8, 0.2, 0.9, 0.5, 0.4, 0.6, 0.3]
 #x0 = [0.2, 1, 0,  0.6]
-
+indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 max_iterations = 30
 f = 2
 
@@ -126,5 +126,5 @@ states = np.array(r)
 iterations = np.arange(len(r))
 correct_consensus = np.average(x0)
 
-plot_state(states, correct_consensus, att_v, title="Evolution of W-MSR", xlabel="Iteration", ylabel="State Value")
+plot_state(states, correct_consensus, att_v, indices, title="Evolution of W-MSR", xlabel="Iteration", ylabel="State Value")
 

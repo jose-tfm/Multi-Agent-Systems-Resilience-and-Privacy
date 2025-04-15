@@ -1,18 +1,28 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import itertools
+import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from utils import plot_state
 
 T = 8             
 f = 1              
 epsilon = 0.05     
 all_agents = [1, 2, 3]
-attackers = {3}
+att_v = [3]
+correct_values = [0, 1]
 x_init = {1: 0.0, 2: 1.0, 3: 0.1}
 
 def attacked_value(agent, t):
     """Attacked node (3) always broadcasts 0.1, for all subsets."""
-    if agent in attackers:
-        return 0.1
+    if agent in att_v:
+        return
     else:
         return None
 
@@ -30,18 +40,17 @@ c = {u: {} for u in all_agents}
 for u in all_agents:
     c[u][0] = [x_init[u]] * len(F_subsets)
 
-# x_values[u][t] will store the final selected state for agent u at time t.
+
 x_values = {u: [x_init[u]] for u in all_agents}
 adjacency = {u: all_agents.copy() for u in all_agents}
 
 
-# Parallel Consensus Updates (Step 2)
 def consensus_candidate(u, t, S):
     """
     Return c_u^(t+1)[S] by averaging c_v^(t)[S] for v in adjacency[u]\S.
     If u is attacked, always return 0.1.
     """
-    if u in attackers:
+    if u in att_v:
         return 0.1
     excluded = S
     included_agents = [v for v in adjacency[u] if v not in excluded]
@@ -50,9 +59,7 @@ def consensus_candidate(u, t, S):
         return c[u][t][subset_index[S]]
     return np.mean(vals)
 
-# -----------------------------
-# Selection Step (Step 3)
-# -----------------------------
+
 def select_state(u, t):
     """
     For a normal agent:
@@ -62,7 +69,7 @@ def select_state(u, t):
       - Otherwise, return the full candidate.
     For an attacked agent, always return 0.1.
     """
-    if u in attackers:
+    if u in att_v:
         return 0.1
     val_full = c[u][t][0]
     for idx, S in enumerate(F_subsets):
@@ -83,9 +90,7 @@ def select_state(u, t):
         print(f"Agent {u} at t={t}: No unique valid candidate, using full candidate")
         return val_full
 
-# -----------------------------
-# Main Simulation Loop
-# -----------------------------
+
 for t in range(T):
     for u in all_agents:
         c[u][t+1] = [None] * len(F_subsets)
@@ -108,23 +113,6 @@ for t in range(T):
         print(f"    Agent {u}: x = {(x_values[u][-1]):.2f}")
 
 
-time_axis = np.arange(T+1)
-plt.figure(figsize=(8,5))
-colors = {1:'g', 2:'b', 3:'r'}
-markers = {1:'s', 2:'s', 3:'o'}
-
-for u in all_agents:
-    if u in attackers:
-        lbl = f'Attacker {u}'
-    else:
-        lbl = f'Agent {u} (normal)'
-    plt.plot(time_axis, [(x) for x in x_values[u]], marker=markers[u], color=colors[u],
-             linestyle='-', label=lbl, markersize=8)
-
-plt.xlabel("Time")
-plt.ylabel("Final Selected State x_u(t)")
-plt.title("Algorithm 1 Attacker agent 3")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-plt.show()
+states = np.array([x_values[u] for u in all_agents]).T
+correct_consensus = np.average(correct_values)
+plot_state(states, correct_consensus, att_v, all_agents, title="General Resilient Alg 1 Evolution", xlabel="Iterations", ylabel="states" )

@@ -1,15 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import itertools
-import math
+import os
+import sys
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from utils import plot_state
 
 T = 25      
-f = 2             
+f = 2              
 epsilon = 0.05     
 all_agents = [1, 2, 3, 4, 5]
 x_init = {1: 14.0, 2: -5.0, 3: 6.0, 4: 2.0, 5: 8.0}
 
+
+att_v = {
+    3: lambda t: 7 - 2**(-0.3 * (t+1)),
+    5: lambda t: 7 + 2**(-0.3 * (t+1))
+}
 
 def normal_update(u, t, S):
     """
@@ -23,11 +35,6 @@ def normal_update(u, t, S):
     return np.mean(vals)
 
 def adversary_update(u, t, S):
-    """
-    For an adversarial node, return a predetermined broadcast value.
-    For node 3: return 7 - 2^(-0.3*(t+1))
-    For node 5: return 7 + 2^(-0.3*(t+1))
-    """
     if u == 3:
         return 7 - 2**(-0.3 * (t+1))
     elif u == 5:
@@ -35,14 +42,12 @@ def adversary_update(u, t, S):
     else:
         return normal_update(u, t, S)
 
-
 update_func = {}
 for u in all_agents:
     if u in [3, 5]:
         update_func[u] = adversary_update
     else:
         update_func[u] = normal_update
-
 
 F_subsets = []
 for size in range(f+1):
@@ -53,14 +58,12 @@ print("Candidate Subsets F:", F_subsets)
 subset_index = {S: i for i, S in enumerate(F_subsets)}
 
 
-# one per candidate subset in F_subsets.
 c = { u: {} for u in all_agents }
 for u in all_agents:
     c[u][0] = [ x_init[u] ] * len(F_subsets)
 
-# x_values[u][t] will store the final selected state for node u at time t.
-x_values = { u: [ x_init[u] ] for u in all_agents }
 
+x_values = { u: [ x_init[u] ] for u in all_agents }
 adjacency = { u: all_agents.copy() for u in all_agents }
 
 def consensus_candidate(u, t, S):
@@ -69,7 +72,6 @@ def consensus_candidate(u, t, S):
     (The update function takes care of whether to act adversarially or normally.)
     """
     return update_func[u](u, t, S)
-
 
 def select_state(u, t):
     """
@@ -98,7 +100,6 @@ def select_state(u, t):
         print(f"Agent {u} at t={t}: No unique valid candidate, using full candidate")
         return val_full
 
-
 for t in range(T):
     for u in all_agents:
         c[u][t+1] = [None] * len(F_subsets)
@@ -112,7 +113,7 @@ for t in range(T):
         cand_str = ", ".join([f"{(val):.2f}" for val in c[u][t+1]])
         print(f"  Agent {u} candidate vector: [{cand_str}]")
     
-    # 2) Selection: each node picks x_u^(t+1) based on its candidate vector.
+    # Selection: each node picks x_u^(t+1) based on its candidate vector.
     for u in all_agents:
         x_next = select_state(u, t+1)
         x_values[u].append(x_next)
@@ -121,21 +122,10 @@ for t in range(T):
     for u in all_agents:
         print(f"    Agent {u}: x = {(x_values[u][-1]):.2f}")
 
+# Convert the x_values dictionary into a states array.
+# The columns will correspond to agents sorted by their IDs.
+agent_ids = sorted(x_values.keys())
+states = np.array([x_values[u] for u in agent_ids]).T
 
-time_axis = np.arange(T+1)
-plt.figure(figsize=(10,5))
-colors = {1:'g', 2:'b', 3:'r', 4:'c', 5:'m'}
-markers = {1:'s', 2:'s', 3:'o', 4:'^', 5:'^'}
-
-for u in all_agents:
-    lbl = f'Agent {u}'
-    plt.plot(time_axis, [(x) for x in x_values[u]], marker=markers[u], color=colors[u],
-             linestyle='-', label=lbl, markersize=8)
-
-plt.xlabel("Time")
-plt.ylabel("Final Selected State x_u(t)")
-plt.title("Algorithm 1 (Global Consensus Updates) - 5 Nodes, 2 Adversaries")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-plt.show()
+correct_consensus = np.average(list(x_init.values()))
+plot_state(states, correct_consensus, att_v, agent_ids, title="General Resilient Evolution", xlabel="Iteration", ylabel="State")
