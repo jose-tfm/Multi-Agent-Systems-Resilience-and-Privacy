@@ -41,8 +41,7 @@ A = np.array([[0,1,1],
               [1,0,1],
               [1,1,0]], dtype=float)
 A_norm = row_normalize(A)
-x0 = np.array([2.0, 4.0, 6.0])  # Original private states
-
+x0 = np.array([0.2, 0.4, 0.5])
 # Build and normalize A^P
 Ap = build_Ap(N, A)
 
@@ -77,7 +76,6 @@ print("Left eigenvector v0 (normalized):", np.round(v0,6))
 print(f"v0 * {lcm} =", ints)
 print("As fractions:", [f"{ints[i]}/{lcm}" for i in range(len(ints))])
 
-# --------------------------------------------------------------------
 # Distribute and rescale initial conditions for augmented system
 x_p0 = np.zeros(4*N)
 for j in range(N):
@@ -97,7 +95,7 @@ X_orig[:,0] = x0
 X_aug[:,0]  = x_p0
 for k in range(steps):
     X_orig[:,k+1] = A_norm @ X_orig[:,k]
-    X_aug[:,k+1]  = Ap      @ X_aug[:,k]
+    X_aug[:,k+1]  = Ap @ X_aug[:,k]
 
 # Plotting
 fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8,10))
