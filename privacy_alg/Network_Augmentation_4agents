@@ -1,146 +1,127 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+
+# --- utilities ----------------------------------------------------------
 
 def row_normalize(M):
-    """Make each row of M sum to 1 (row‑stochastic)."""
+    """Make each row of M sum to 1 (row-stochastic)."""
     return M / (M.sum(axis=1, keepdims=True) + 1e-12)
 
-def build_Ap_bidir(N, A):
+def build_Ap_bidir_raw(N, A):
+    """Algorithm 3 exactly — no normalization at the end."""
     size = 5 * N
-    Ap   = np.zeros((size, size))
+    Ap = np.zeros((size, size))
     Ap[:N, :N] = A / 2.0
     for i in range(N):
-        base = N + 4*i
-        i1, i2, i3, i4 = base, base + 1, base + 2, base + 3
-        print(base)
+        base = N + 4 * i
+        i1, i2, i3, i4 = base, base+1, base+2, base+3
         Ap[i,   i1] = 1/12
         Ap[i,   i2] =  1/8
         Ap[i,   i3] =  1/4
         Ap[i,   i4] = 1/24
+        Ap[i1, i] = 1/11
+        Ap[i2, i] =   1/2
+        Ap[i3, i] =   3/4
+        Ap[i4, i] = 1/16
+        Ap[i2, i1] =  1/2
+        Ap[i3, i1] =  1/4
+        Ap[i4, i1] = 15/16
+        Ap[i1, i2] =  3/22
+        Ap[i1, i3] =   1/11
+        Ap[i1, i4] = 15/22
+    return Ap
 
-        Ap[i1, i] = 1/11       
-        Ap[i2, i] =   1/2       
-        Ap[i3, i] =   3/4      
-        Ap[i4, i] = 1/16      
-
-       
-        Ap[i2, i1] =  1/2       
-        Ap[i3, i1] =  1/4       
-        Ap[i4, i1] = 15/16     
-
-        Ap[i1, i2] =  3/22    
-        Ap[i1, i3] =   1/11   
-        Ap[i1, i4] = 15/22   
-
-    return row_normalize(Ap)
-
-
-
-def distributed_solve_alg4(N, Ap, x0):
-    """
-    Algorithm 4: compute the left‑eigenvector vL and initial xP0.
-    """
+def distributed_solve_alg4(N, Ap, x0, ratios=None):
+    """Compute s, left eigenvector vL, and initial xP0."""
     size = 5 * N
-    s    = np.zeros(size)
+    s = np.zeros(size)
     s[0] = 1.0
-
-
-    visited = {0}
-    remaining = set(range(1, N))
-    while remaining:
-        for j in list(remaining):
+    visited, rem = {0}, set(range(1, N))
+    while rem:
+        for j in list(rem):
             for i in visited:
                 if Ap[i, j] > 0 and Ap[j, i] > 0:
                     s[j] = s[i] * Ap[i, j] / Ap[j, i]
                     visited.add(j)
-                    remaining.remove(j)
+                    rem.remove(j)
                     break
             else:
                 continue
             break
-
     for i in range(N):
-        si   = s[i]
-        base = N + 4*i
-        s[ base + 0 ] = (11/12)*si
-        s[ base + 1 ] =   (1/4)*si
-        s[ base + 2 ] =   (1/3)*si
-        s[ base + 3 ] =   (2/3)*si
-
-
-    Z  = s.sum()
+        si, base = s[i], N + 4 * i
+        s[base+0] = 11/12 * si
+        s[base+1] = 1/4   * si
+        s[base+2] = 1/3   * si
+        s[base+3] = 2/3   * si
+    Z = s.sum()
     vL = s / Z
-
-    xP0 = np.zeros(5*N)
+    xP0 = np.zeros(size)
+    if ratios is None:
+        ratios = np.ones(4)
     for i in range(N):
-        xi    = x0[i]
-        base  = N + 4*i                      
-        alphas = np.ones(4)*(5*xi/4)         
-   
-        xP0[i] = 0.0
-
-
+        xi, base = x0[i], N + 4 * i
+        alphas = ratios / ratios.sum() * (5 * xi)
         for k in range(4):
-            idx       = base + k
-            xP0[idx]  = (Z / s[idx]) * alphas[k]
-    print(Ap)
-    print('This is the output Vector', xP0)
+            xP0[base + k] = (Z / s[base + k]) * alphas[k]
+    xP0 *= (x0.mean() / (vL @ xP0))
+    return s, vL, xP0
 
-    avg     = x0.mean()
-    current = vL @ xP0
-    xP0    *= (avg/current)
+# --- main visualization ------------------------------------------------
 
+N = 11
+A = np.array([
+    [0,   1/3, 1/3, 0,   0,   0,   0,   0,   0,   0,   1/3],
+    [1/3, 0,   1/3, 1/3, 0,   0,   0,   0,   0,   0,   0  ],
+    [1/3, 1/3, 0,   1/3, 0,   0,   0,   0,   0,   0,   0  ],
+    [0,   0,   1/3, 0,   1/3, 0,   0,   1/3, 0,   0,   0  ],
+    [0,   1/3, 0,   1/3, 0,   1/3, 0,   0,   0,   0,   0  ],
+    [0,   0,   0,   0,   1/3, 0,   1/3, 0,   0,   1/3, 0  ],
+    [0,   0,   0,   0,   0,   1/2, 0,   1/2, 0,   0,   0  ],
+    [0,   0,   0,   1/3, 0,   0,   1/3, 0,   1/3, 0,   0  ],
+    [0,   0,   0,   0,   0,   1/2, 0,   1/2, 0,   0,   0  ],
+    [0,   0,   0,   0,   0,   0,   1/3, 0,   0,   1/3, 1/3],
+    [1/2, 0,   0,   0,   0,   0,   0,   0,   0,   1/2, 0  ]
+])
+x0 = np.array([0.1, 0.3, 0.6, 0.43, 0.85, 0.9, 0.45, 0.11, 0.06, 0.51, 0.13])
 
-    return vL, xP0
+Ap = build_Ap_bidir_raw(N, A)
+s, vL, xP0 = distributed_solve_alg4(N, Ap, x0)
 
+steps = 60
+A_norm = row_normalize(A)
+Xo = np.zeros((N, steps+1))
+Xa = np.zeros((5*N, steps+1))
+Xo[:,0], Xa[:,0] = x0, xP0
+for k in range(steps):
+    Xo[:,k+1] = A_norm @ Xo[:,k]
+    Xa[:,k+1] = Ap      @ Xa[:,k]
 
-if __name__ == "__main__":
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
-    N  = 3
-    A  = np.array([[0, 0.5, 0.5],
-                   [0.5, 0, 0.5],
-                   [0.5, 0.5, 0]], dtype=float)
-    
-    x0 = np.array([0.5, 1/3, 0.2])
-    A_norm = row_normalize(A)
-    Ap     = build_Ap_bidir(N, A)
-    vL, xP0 = distributed_solve_alg4(N, Ap, x0)
+# Plot (a)
+colors = cm.get_cmap('tab10', N)
+for i in range(N):
+    ax1.plot(range(steps+1), Xo[i], label=fr'$x_{{{i+1}}}[k]$', color=colors(i))
+ax1.axhline(x0.mean(), ls='--', color='black', label='Consensus={:.2f}'.format(x0.mean()))
+ax1.set_title(r"(a) Consensus on $G(A)$")
+ax1.set_xlabel("Step k")
+ax1.set_ylabel("Value")
+ax1.grid()
+ax1.legend(fontsize='small')
 
-    # simulate
-    steps = 30
-    Xo = np.zeros((N,    steps+1))
-    Xa = np.zeros((5*N,  steps+1))
-    Xo[:,0] = x0
-    Xa[:,0] = xP0
-    for k in range(steps):
-        Xo[:,k+1] = A_norm @ Xo[:,k]
-        Xa[:,k+1] = Ap @ Xa[:,k]
+# Plot (b)
+for i in range(N):
+    ax2.plot(range(steps+1), Xa[i], label=fr'$\tilde{{x}}_{{{i+1},1}}[k]$')
+    for j in range(4):
+        ax2.plot(range(steps+1), Xa[N + 4*i + j], label=fr'$\tilde{{x}}_{{{i+1},{j+2}}}[k]$')
+ax2.axhline(x0.mean(), ls='--', color='black', label='Consensus={:.2f}'.format(x0.mean()))
+ax2.set_title(r"(b) Consensus on $G(A^P)$")
+ax2.set_xlabel("Step k")
+ax2.set_ylabel("Value")
+ax2.grid()
+ax2.legend(ncol=5, fontsize='x-small', bbox_to_anchor=(1.05, 1), loc='upper left')
 
-    # plot
-    target = x0.mean()
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8,10))
-
-    # (a) original
-    for i in range(N):
-        ax1.plot(Xo[i], label=f'$x_{{{i+1}}}[k]$')
-    ax1.axhline(target, color='k', lw=1, label=f'Consensus={target:.2f}')
-    ax1.set_title('(a) Consensus on the 3‑cycle $G(A)$')
-    ax1.set_xlabel('Step $k$'); ax1.set_ylabel('Value')
-    ax1.legend(loc='upper right'); ax1.grid(True)
-
-    # (b) augmented
-    for i in range(5*N):
-        if i < N:
-            lbl = f'$x_{{{i+1}}}[k]$'
-        else:
-            agent = (i - N)//4 + 1
-            aug   = (i - N)%4 + 1
-            lbl   = f'$\\tilde x_{{{agent},{aug}}}[k]$'
-        ax2.plot(Xa[i], label=lbl)
-    ax2.axhline(target, color='k', lw=1, label=f'Consensus={target:.2f}')
-    ax2.set_title('(b) Consensus on the augmented $G(A^P)$')
-    ax2.set_xlabel('Step $k$'); ax2.set_ylabel('Value')
-    ax2.legend(ncol=4, loc='upper right', fontsize='small'); ax2.grid(True)
-
-    plt.tight_layout()
-    plt.show()
+plt.tight_layout()
+plt.show()
