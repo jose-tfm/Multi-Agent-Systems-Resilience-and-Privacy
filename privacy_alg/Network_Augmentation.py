@@ -91,7 +91,7 @@ print("Augmented initial x_p0:", x_p0)
 
 
 # ---- Simulate both dynamics ----
-steps = 15
+steps = 25
 X_orig = np.zeros((N, steps+1))
 X_aug  = np.zeros((4*N, steps+1))
 X_orig[:,0] = x0

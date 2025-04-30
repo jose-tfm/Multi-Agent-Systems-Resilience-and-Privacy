@@ -87,7 +87,9 @@ A = np.array([
 x0 = np.array([0.1, 0.3, 0.6, 0.43, 0.85, 0.9, 0.45, 0.11, 0.06, 0.51, 0.13])
 
 Ap = build_Ap_bidir_raw(N, A)
+print('Esta é a matrix', Ap)
 s, vL, xP0 = distributed_solve_alg4(N, Ap, x0)
+print('vL', vL, 'xP0', xP0)
 
 steps = 60
 A_norm = row_normalize(A)
