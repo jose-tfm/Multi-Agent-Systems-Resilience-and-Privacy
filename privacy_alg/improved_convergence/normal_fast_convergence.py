@@ -2,15 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import cvxpy as cp
-
-# --- utilities ----------------------------------------------------------
-
+# Este foi o Ultimo que estive mudar
 # ——— force full‐array printing ———————————————————————————————
-np.set_printoptions(threshold=np.inf, linewidth=200, precision=4, suppress=True)
-
-def row_normalize(M):
-    """Make each row of M sum to 1 (row-stochastic)."""
-    return M / (M.sum(axis=1, keepdims=True) + 1e-12)
+np.set_printoptions(threshold=np.inf, linewidth=200, precision=7, suppress=True)
 
 
 def build_Ap_bidir_raw(N, A):
@@ -36,7 +30,6 @@ def build_Ap_bidir_raw(N, A):
         Ap[i1, i3] =   1/11
         Ap[i1, i4] = 15/22
     return Ap
-
 
 def distributed_solve_alg4(N, Ap, x0, ratios=None):
     """Compute s, left eigenvector vL, and initial xP0."""
@@ -95,18 +88,19 @@ steps = 500
 
 # --- 1) Consensus on original and augmented networks ------------------
 
-A_norm = row_normalize(A)
-print('Esta é a matrix Normal', A_norm)
+
+print('\nFull original A (size {}×{}):'.format(*A.shape))
+print(A)
 Xo = np.zeros((N, steps+1))
 Xo[:, 0] = x0
 for k in range(steps):
-    Xo[:, k+1] = A_norm @ Xo[:, k]
+    Xo[:, k+1] = A @ Xo[:, k]
 
-
+# build Ap (raw) and also print its normalized version
 Ap = build_Ap_bidir_raw(N, A)
-
 print('\nFull original Ap (size {}×{}):'.format(*Ap.shape))
 print(Ap)
+
 
 _, _, xP0 = distributed_solve_alg4(N, Ap, x0)
 Xa = np.zeros((5*N, steps+1))
@@ -116,23 +110,32 @@ for k in range(steps):
 
 # --- 2) SDP-based weight optimization --------------------------------
 mask = (A > 0).astype(float)
-W = cp.Variable((N, N), nonneg=True)
-gamma = cp.Variable()
-L = cp.diag(cp.sum(W, axis=1)) - W
-P = np.eye(N) - np.ones((N, N)) / N
+eps  = 1e-6
+
+W = cp.Variable((N,N), nonneg=True)
+γ = cp.Variable()
+L = cp.diag(cp.sum(W,axis=1)) - W
+P = np.eye(N) - np.ones((N,N))/N
 
 constraints = [
-    cp.multiply(mask, W) == W,
-    cp.sum(W, axis=1) == 1,
-    L - gamma * P >> 0
+    cp.multiply(mask, W) == W,   # zero out non-edges
+    W >= eps*mask,               # enforce W[i,j] >= eps on every original edge
+    cp.sum(W, axis=1) == 1,      # row‐stochastic
+    L - γ*P >> 0                 # maximize algebraic connectivity
 ]
-prob = cp.Problem(cp.Maximize(gamma), constraints)
-prob.solve(solver=cp.SCS)
-print(f"Optimal algebraic connectivity: {gamma.value:.4f}")
-W_opt = W.value
-print('\nFull optimized W_opt (size {}×{}):'.format(*W_opt.shape))
-print(W_opt)
 
+prob = cp.Problem(cp.Maximize(γ), constraints)
+prob.solve(solver=cp.SCS)
+
+W_opt = W.value
+print("Optimized A:\n", W_opt)
+
+
+
+# build Ap from W_opt and print its normalized version
+Ap_opt = build_Ap_bidir_raw(N, W_opt)
+print('\nAp_opt from A_opt (size {}×{}):'.format(*Ap_opt.shape))
+print(Ap_opt)
 
 # --- 3) Consensus with optimized weights ------------------------------
 X_sdp = np.zeros((N, steps+1))
@@ -165,7 +168,7 @@ for i in range(N*5):
 for i in range(N):
     axes[2].plot(X_sdp[i], linestyle='-', linewidth=1.5)
 axes[2].axhline(x0.mean(), ls=':', color='black', label=f"True avg={x0.mean():.2f}")
-axes[2].set_title('(c) Consensus with SDP-optimized weights + all states')
+axes[2].set_title('(c) Consensus with SDP-optimized weights')
 axes[2].set_ylabel('Value')
 axes[2].set_xlabel('Step k')
 axes[2].grid(linestyle=':')
