@@ -1,193 +1,170 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ─── Make everything deterministic ──────────────────────────────────────────
-np.random.seed(42)
-
-# ─── Parameters ─────────────────────────────────────────────────────────────
+# 1) simulation parameters (as in §5.1)
 n, d, d_prime = 5, 3, 3
 D = d + d_prime
-sigma = 2.0
-max_iter = 120
-T = D - 1
+sigma = 2
+max_iter = 400
+d_star = D - 1                       
+bound = 1.0 / (4*(n-1)*sigma)       
+
+# 2) topology
 neighbors = {
-    0: [1, 2],
-    1: [0, 2, 3],
-    2: [0, 1, 3, 4],
-    3: [1, 2, 4],
-    4: [2, 3]
+    0: [1,2],
+    1: [0,2,4],
+    2: [0,1,3],
+    3: [2,4],
+    4: [1,3]
 }
 
-# ─── Initial real states x(0) ──────────────────────────────────────────────
-x_real0 = np.array([
-    [ 1,  2,  3],
-    [ 4,  5,  6],
-    [ 7,  8,  9],
-    [10, 11, 12],
-    [13, 14, 15]
-], dtype=float)
+# 3) initial real states
+x_real0 = np.array([[1,2,3],
+                    [4,5,6],
+                    [7,8,9],
+                    [10,11,12],
+                    [13,14,15]], float)
 avg_real = x_real0.mean(axis=0)
 
-# ─── Build orthogonal set V as per Appendix A.1 (37)–(42) ─────────────────
+# 4) build orthogonal basis V (App. A.1 eqs 37–42),
+#    first d' coords = virtual, last d = real
 V = []
-
-# v1 = [1,1,1,0,0,0]^T
-v1 = np.concatenate([np.ones(d), np.zeros(d_prime)])
+v1 = np.concatenate([np.ones(d_prime), np.zeros(d)])  # v1 = (1,1,1,0,0,0)
 V.append(v1)
-
-# v2 … v(D-1) for i=2…5 (1-based)
-for i in range(2, D):
+for i in range(2, D):  # i = 2..D-1
     v = np.zeros(D)
     inv = 1.0 / i
-    # first coordinate +1/i, next i-1 coords = -1/i
-    v[0]    = +inv
-    v[1:i]  = -inv
-    # one 1 at position i-1 (0-based index = i-1 → but Appendix uses 1-based)
-    v[i-1] += 1.0  # this adds to the existing ±1/i entry
+    v[0]   = +inv
+    v[1:i] = -inv
+    v[i]   =  1.0     
     V.append(v)
-
-# v6 = [1/6, -1/6, ..., -1/6]
-invD = 1.0 / D
-vD = np.full(D, -invD)
-vD[0] = +invD
+vD = np.full(D, -1.0/D)
+vD[0] = +1.0/D
 V.append(vD)
+print("Basis V:")
+for idx, v in enumerate(V, start=1):
+    print(f" v{idx} =", np.round(v,6))
 
-# (Optionally you can normalize, but not strictly necessary for orthogonality)
 
-# ─── Build Φ for k=0 ────────────────────────────────────────────────────────
-# same as eq(37): Φ = (v1 v1^T)/(v1^T v1)
+# 5) static projector Φ at k=0 (eq 37), normalized
 Phi = np.outer(v1, v1) / (v1 @ v1)
+print(f'Phi = \n {Phi}')
 
-# ─── Static one-step update (Fig.7) ────────────────────────────────────────
-# Raw 3-D projector for Fig.7(a–c)
-v_raw = np.ones(d); v_raw /= np.linalg.norm(v_raw)
-Phi_raw = np.outer(v_raw, v_raw)
+# 6) lift into R^{d+d'} with uniform-[0,1] virtual init
+xv0 = np.random.rand(n, d_prime)
+xt  = np.hstack((xv0, x_real0))
+print(f'Este é o xt = \n {xt}')
 
-x1_raw = x_real0.copy()
-for i in range(n):
-    diff = sum((Phi_raw @ x_real0[j] - Phi_raw @ x_real0[i]) for j in neighbors[i])
-    x1_raw[i] += sigma * diff
 
-# Lifted 6-D single-step (Fig.7(d–f))
-alpha = 0.0
-xv0 = np.full((n, d_prime), alpha)
-xt0 = np.hstack((xv0, x_real0))
-xt1 = xt0.copy()
+# 7)
+
+P_edge = {}
 for i in range(n):
     for j in neighbors[i]:
-        A0 = Phi  # Pij = I
-        delta = (A0 @ xt0[j] - A0 @ xt0[i])
-        xt1[i] += sigma * delta
+        if j > i:
+            M = np.random.rand(D, D)
+            P = M @ M.T
+            P_edge[(i,j)] = P_edge[(j,i)] = P
 
-x0_lift = xt0[:, d_prime:]
-x1_lift = xt1[:, d_prime:]
-
-# ─── Full dynamic run for Fig.5 & Fig.6 ────────────────────────────────────
-xt = xt0.copy()
-traj = np.zeros((max_iter+1, n, D))
-traj[0] = xt
-
-# static k=0 with projector onto V[0]
-Phi0 = np.outer(V[0], V[0])
+deltas = np.zeros_like(xt)    
 for i in range(n):
-    diff = sum((Phi0 @ xt[j] - Phi0 @ xt[i]) for j in neighbors[i])
-    xt[i] += sigma * diff
-traj[1] = xt.copy()
+    total = np.zeros(D)
+    for j in neighbors[i]:
+        term = P_edge[(i,j)] @ (Phi @ xt[j] - Phi @ xt[i])
+        total += term
+    deltas[i] = sigma * total
 
-# pre-generate gamma/zeta sequences
-gamma_seq = np.random.rand(max_iter+1) * (1/(4*(n-1)*sigma))
-zeta_seq  = np.random.rand(max_iter+1) * (1/(4*(n-1)*sigma))
+xt += deltas
 
-# record y_{3→2}
-y32 = np.zeros((max_iter+1, d))
+print(f' Este é o xt = \n {xt}')
+
+
+# 8) main loop k=1…max_iter
+traj = np.zeros((max_iter+1, n, D))
+traj[0] = xt.copy()
+y32   = np.zeros((max_iter+1, d))
 
 for k in range(1, max_iter+1):
-    rho = k % T or T
+
+    rho    = k % d_star or d_star
     vr, vlast = V[rho-1], V[-1]
 
-    # record the message from 3→2
-    g, z = gamma_seq[k], zeta_seq[k]
-    A23 = g*np.outer(vr, vr) + z*np.outer(vlast, vlast)
-    y32[k] = (A23 @ xt[2])[d_prime:]
+    P_vr    = np.outer(vr,      vr)   / (vr   @ vr)
+    P_vl    = np.outer(vlast, vlast)/ (vlast@ vlast)
 
-    # full consensus update
-    new = xt.copy()
+    A_edge = {}
+    for i in range(n):
+        for j in neighbors[i]:
+            if j > i:
+                γ = np.random.uniform(0, bound)
+                ζ = np.random.uniform(0, bound)
+                A = γ * P_vr + ζ * P_vl
+                A_edge[(i,j)] = A_edge[(j,i)] = A
+
+    A23      = A_edge[(2,1)]    
+    y32[k]   = (A23 @ xt[2])[d_prime:]
+
+    new_xt = xt.copy()
     for i in range(n):
         acc = np.zeros(D)
         for j in neighbors[i]:
-            g, z = gamma_seq[k], zeta_seq[k]
-            Aij = g*np.outer(vr, vr) + z*np.outer(vlast, vlast)
-            acc += Aij @ (xt[j] - xt[i])
-        new[i] += sigma * acc
-    xt = new
-    traj[k] = xt
+            acc += A_edge[(i,j)] @ (xt[j] - xt[i])
+        new_xt[i] += sigma * acc
 
-real_traj = traj[:, :, d_prime:]  # (k, i, ℓ)
+    xt      = new_xt
+    traj[k] = xt.copy()
+print(f' Isto é A = \n {A}')
 
-# ─── Plot Fig.5: evolution of x_{iℓ}(k) ─────────────────────────────────────
-for ℓ in range(d):
-    plt.figure()
+real_traj = traj[:, :, d_prime:]    # shape (max_iter+1, n, d)
+
+
+
+# 10) Plot Fig.5: evolution of x_iℓ(k)
+k0, ks = 0, np.arange(0, max_iter+1)
+fig5, ax5 = plt.subplots(1, 3, figsize=(12,4), sharey=True)
+
+for ℓ, ax in enumerate(ax5):
     for i in range(n):
-        plt.plot(real_traj[:, i, ℓ], label=f'Agent {i+1}')
-    plt.plot(
-        [avg_real[ℓ]]*(max_iter+1),
-        color='k', linestyle='--', label='Avg(x(0))'
-    )
-    plt.title(f'Fig. 5({chr(97+ℓ)})')
-    plt.xlabel('k')
-    plt.ylabel(rf'$x_{{i{ℓ+1}}}(k)$')
-    plt.legend()
-    plt.grid()
-    plt.show()
+        ax.plot(ks, real_traj[k0:, i, ℓ], label=f'Agent {i+1}')
+    ax.hlines(avg_real[ℓ], k0, max_iter, 'k', '--',
+              label=rf'$[\mathrm{{Avg}}(x(0))]_{{{ℓ+1}}}$')
 
-# ─── Plot Fig.6: x_3 vs y_{3→2} ────────────────────────────────────────────
-for ℓ in range(d):
-    plt.figure()
-    plt.plot(real_traj[:, 2, ℓ], label=rf'$[x_3(k)]_{{{ℓ+1}}}$')
-    plt.plot(y32[:, ℓ],         label=rf'$[y_{{3\to2}}(k)]_{{{ℓ+1}}}$')
-    plt.plot(
-        [avg_real[ℓ]]*(max_iter+1),
-        color='k', linestyle='--', label='Avg(x(0))'
-    )
-    plt.title(f'Fig. 6({chr(97+ℓ)})')
-    plt.xlabel('k')
-    plt.legend()
-    plt.grid()
-    plt.show()
-
-# ─── Plot Fig.7: one-step static (raw vs lifted) ───────────────────────────
-fig, axs = plt.subplots(2, 3, figsize=(12, 6), sharey='row')
-kvals = [0, 1]
-
-# raw
-for ℓ in range(d):
-    ax = axs[0, ℓ]
-    for i in range(n):
-        ax.plot(kvals, [x_real0[i, ℓ], x1_raw[i, ℓ]], 'o-')
-    ax.hlines(
-        avg_real[ℓ], 0, 1,
-        colors='k', linestyles='--'
-    )
-    ax.set_title(f'({chr(97+ℓ)}) raw')
-    ax.set_xticks(kvals)
+    ax.set_title(f'({chr(97+ℓ)})')
+    ax.set_xlabel('k')
+    ax.set_ylabel(rf'$x_{{i{ℓ+1}}}(k)$')
     if ℓ == 0:
         ax.set_ylabel(r'$x_{i\ell}(k)$')
     ax.grid(True)
+    ax.legend(ncol=2, fontsize='small', loc='upper right')
+    ax.yaxis.set_tick_params(labelleft=True)
 
-# lifted
-for ℓ in range(d):
-    ax = axs[1, ℓ]
-    for i in range(n):
-        ax.plot(kvals, [x0_lift[i, ℓ], x1_lift[i, ℓ]], 'o-')
-    ax.hlines(
-        avg_real[ℓ], 0, 1,
-        colors='k', linestyles='--'
-    )
-    ax.set_title(f'({chr(100+ℓ)}) lifted')
-    ax.set_xticks(kvals)
-    if ℓ == 0:
-        ax.set_ylabel(r'$\tilde x_{i\ell}(k)$')
+
+fig5.suptitle('Fig.5: Evolution of real agent states')
+plt.tight_layout(rect=[0,0,1,0.93])
+plt.show()
+
+
+
+# 11) Plot Fig.6: x₃(k) vs y₃→₂(k)
+fig6, ax6 = plt.subplots(1,3,figsize=(12,4), sharey=True)
+for ℓ, ax in enumerate(ax6):
+    ax.plot(ks, real_traj[k0:, 2, ℓ],
+            label=rf'$[x_3(k)]_{{{ℓ+1}}}$')
+    ax.plot(ks, y32[k0:,    ℓ],
+            label=rf'$[y_{{3\to2}}(k)]_{{{ℓ+1}}}$')
+    ax.hlines(avg_real[ℓ], ks[0], ks[-1], 'k','--',
+              label=rf'$[\mathrm{{Avg}}(x(0))]_{{{ℓ+1}}}$')
+
+    ax.set_title(f'({chr(97+ℓ)})')
+    ax.set_xlabel('k')
+    ax.set_ylabel('Value')
     ax.grid(True)
+    ax.set_ylim(0, 15)
+    ax.yaxis.set_tick_params(labelleft=True)
 
-plt.tight_layout()
+    # legend in each subplot:
+    ax.legend(fontsize='small', loc='upper right')
+
+fig6.suptitle('Fig.6: $x_3(k)$ vs $y_{3\\to2}(k)$')
+plt.tight_layout(rect=[0,0,1,0.93])
 plt.show()
