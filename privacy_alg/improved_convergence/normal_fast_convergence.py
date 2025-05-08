@@ -109,33 +109,77 @@ for k in range(steps):
     Xa[:, k+1] = Ap @ Xa[:, k]
 
 # --- 2) SDP-based weight optimization --------------------------------
+# adjacency mask
 mask = (A > 0).astype(float)
-eps  = 1e-6
+eps   = 1e-6     # minimum weight on each original edge
+delta = 1e-6     # PSD slack for strict feasibility
 
-W = cp.Variable((N,N), nonneg=True)
-γ = cp.Variable()
-L = cp.diag(cp.sum(W,axis=1)) - W
-P = np.eye(N) - np.ones((N,N))/N
+# --- additional constraints to respect original weight layout ---
+# enforce that no optimized weight deviates too far from original
+# i.e., each W[i,j] stays within [alpha*A[i,j], beta*A[i,j]] on original edges
+alpha = 0.5     # lower‐bound factor (e.g. keep at least 50% of original)
+beta  = 1.5     # upper‐bound factor (e.g. at most 150% of original)
 
+# --- decision variables ---
+W     = cp.Variable((N, N), nonneg=True)
+gamma = cp.Variable()
+
+# --- Laplacian and centering projector ---
+L = cp.diag(cp.sum(W, axis=1)) - W
+P = np.eye(N) - np.ones((N, N)) / N
+
+# --- constraints ---
 constraints = [
-    cp.multiply(mask, W) == W,   # zero out non-edges
-    W >= eps*mask,               # enforce W[i,j] >= eps on every original edge
-    cp.sum(W, axis=1) == 1,      # row‐stochastic
-    L - γ*P >> 0                 # maximize algebraic connectivity
+    cp.multiply(mask, W) == W,             # zero out non-edges
+    W >= eps * mask,                       # strictly positive on original edges
+    cp.sum(W, axis=1) == 1,                # row-stochastic
+    W == W.T,                              # symmetry → uniform reversibility
+    L - gamma * P >> delta * np.eye(N),    # maximize algebraic connectivity (slack)
+    # respect original weights: bounds on deviation
+    W[mask.astype(bool)] >= alpha * A[mask.astype(bool)],
+    W[mask.astype(bool)] <= beta  * A[mask.astype(bool)],
 ]
 
-prob = cp.Problem(cp.Maximize(γ), constraints)
-prob.solve(solver=cp.SCS)
+# --- setup and solve ---
+prob = cp.Problem(cp.Maximize(gamma), constraints)
 
-W_opt = W.value
-print("Optimized A:\n", W_opt)
+# 1) Try interior‐point via CVXOPT
+try:
+    W.value = mask * (1.0 / mask.sum(axis=1, keepdims=True))  # warm start
+    prob.solve(
+        solver=cp.CVXOPT,
+        feastol=1e-8,
+        reltol=1e-8,
+        abstol=1e-8,
+        verbose=True,
+        warm_start=True
+    )
+    print("Solved with CVXOPT; status =", prob.status)
+except Exception as e:
+    print("CVXOPT failed:", e)
 
+# 2) Fallback to SCS for a robust, approximate solution
+if prob.status != cp.OPTIMAL:
+    prob.solve(
+        solver=cp.SCS,
+        eps=1e-5,
+        max_iters=50000,
+        verbose=True
+    )
+    print("Solved with SCS; status =", prob.status)
 
+# --- extract and view results ---
+W_opt     = W.value
+gamma_opt = gamma.value
 
-# build Ap from W_opt and print its normalized version
-Ap_opt = build_Ap_bidir_raw(N, W_opt)
-print('\nAp_opt from A_opt (size {}×{}):'.format(*Ap_opt.shape))
-print(Ap_opt)
+if gamma_opt is not None:
+    print(f"Optimal algebraic connectivity γ = {gamma_opt:.6f}")
+else:
+    print("Gamma value not available (status =", prob.status, ")")
+
+print("Optimized reversible W (rounded):")
+print(np.round(W_opt, 4))
+
 
 # --- 3) Consensus with optimized weights ------------------------------
 X_sdp = np.zeros((N, steps+1))
