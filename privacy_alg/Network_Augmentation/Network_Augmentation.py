@@ -24,12 +24,23 @@ def build_Ap(N, A):
     return row_normalize(Ap)
 
 # Parameters
-N = 3
-A = np.array([[0,1,1],
-              [1,0,1],
-              [1,1,0]], dtype=float)
+N = 11
+A = np.array([
+    [0,   1/3, 1/3, 0,   0,   0,   0,   0,   0,   0,   1/3],
+    [1/3, 0,   1/3, 1/3, 0,   0,   0,   0,   0,   0,   0  ],
+    [1/3, 1/3, 0,   1/3, 0,   0,   0,   0,   0,   0,   0  ],
+    [0,   0,   1/3, 0,   1/3, 0,   0,   1/3, 0,   0,   0  ],
+    [0,   1/3, 0,   1/3, 0,   1/3, 0,   0,   0,   0,   0  ],
+    [0,   0,   0,   0,   1/3, 0,   1/3, 0,   0,   1/3, 0  ],
+    [0,   0,   0,   0,   0,   1/2, 0,   1/2, 0,   0,   0  ],
+    [0,   0,   0,   1/3, 0,   0,   1/3, 0,   1/3, 0,   0  ],
+    [0,   0,   0,   0,   0,   1/2, 0,   1/2, 0,   0,   0  ],
+    [0,   0,   0,   0,   0,   0,   1/3, 0,   0,   1/3, 1/3],
+    [1/2, 0,   0,   0,   0,   0,   0,   0,   0,   1/2, 0  ]
+])
+x0 = np.array([0.1,0.3,0.6,0.43,0.85,0.9,0.45,0.11,0.06,0.51,0.13])
 A_norm = row_normalize(A)
-x0 = np.array([0.2, 0.4, 0.5])
+
 
 # Build and normalize A^P
 Ap = build_Ap(N, A)
@@ -41,21 +52,21 @@ v0 = np.real(V[:, idx])
 v0 = v0 / v0.sum()
 
 # ---- Observability check (unchanged) ----
-C = np.hstack([np.eye(6), np.zeros((6,6))])
-P_list = [C @ np.linalg.matrix_power(Ap, k) for k in range(4*N)]
-P_O = np.vstack(P_list)
-P_sym = sp.Matrix(P_O)
-colspace = P_sym.columnspace()
-e10 = sp.Matrix([[1 if i==9 else 0] for i in range(12)])
-e12 = sp.Matrix([[1 if i==11 else 0] for i in range(12)])
-print("e10 observable?", colspace.__contains__(e10))
-print("e12 observable?", colspace.__contains__(e12))
+#C = np.hstack([np.eye(6), np.zeros((6,6))])
+#P_list = [C @ np.linalg.matrix_power(Ap, k) for k in range(4*N)]
+#P_O = np.vstack(P_list)
+#P_sym = sp.Matrix(P_O)
+#colspace = P_sym.columnspace()
+#e10 = sp.Matrix([[1 if i==9 else 0] for i in range(12)])
+#e12 = sp.Matrix([[1 if i==11 else 0] for i in range(12)])
+#print("e10 observable?", colspace.__contains__(e10))
+#print("e12 observable?", colspace.__contains__(e12))
 
 # Convert v0 to simple fractions (optional)
-fracs = [sp.nsimplify(val) for val in v0]
-denoms = [f.q for f in fracs]
-lcm = math.lcm(*denoms)
-ints = [int(fracs[i]*lcm) for i in range(len(fracs))]
+#fracs = [sp.nsimplify(val) for val in v0]
+#denoms = [f.q for f in fracs]
+#lcm = math.lcm(*denoms)
+#ints = [int(fracs[i]*lcm) for i in range(len(fracs))]
 #print("v0 (normalized):", np.round(v0,6))
 
 
@@ -91,7 +102,7 @@ print("Augmented initial x_p0:", x_p0)
 
 
 # ---- Simulate both dynamics ----
-steps = 25
+steps = 200
 X_orig = np.zeros((N, steps+1))
 X_aug  = np.zeros((4*N, steps+1))
 X_orig[:,0] = x0
