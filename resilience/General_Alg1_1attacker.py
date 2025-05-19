@@ -9,7 +9,7 @@ parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from utils import plot_state
+from utils.utils import plot_state
 
 T = 8             
 f = 1              

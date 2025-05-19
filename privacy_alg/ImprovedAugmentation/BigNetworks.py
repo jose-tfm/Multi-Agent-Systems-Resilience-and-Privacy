@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import eig, eigvals
 from scipy.optimize import minimize
+import networkx as nx
 
 np.set_printoptions(
     threshold=np.inf,
@@ -189,96 +190,126 @@ def consensus_rate(w: np.ndarray) -> float:
     vals.sort()
     return vals[-2]
 
-# Definição da rede base
-N = 3
-A = np.array([
-    [0,   0.5, 0.5],
-    [0.5, 0,   0.5],
-    [0.5, 0.5, 0  ]
-], dtype=float)
-x0 = np.array([0.5, 1/3, 0.2])
+# Parameters
+N = 2000                  # number of original nodes
+p = 0.03                  # edge creation probability
+tol = 1e-4               # convergence tolerance
+steps = 100              # maximum iterations
 
-# Pesos do vector
+#------------------------------------------------------------
+# 1) Build a large random directed graph and row‐stochastic A
+G = nx.erdos_renyi_graph(N, p, seed=42, directed=True)
+G.remove_edges_from(nx.selfloop_edges(G))
+A = nx.to_numpy_array(G, dtype=float)
+row_sums = A.sum(axis=1, keepdims=True)
+row_sums[row_sums == 0] = 1e-12  # avoid division by zero
+A_stochastic = A / row_sums
+
+# 2) Generate a random initial state x0 on the original nodes
+x0 = np.random.rand(N)
+
+#------------------------------------------------------------
+# Helper: row-normalize any matrix
+
+def row_normalize(M: np.ndarray) -> np.ndarray:
+    s = M.sum(axis=1, keepdims=True)
+    s[s == 0] = 1e-12
+    return M / s
+
+#------------------------------------------------------------
+# Build the augmented transition matrix A^P using gadget type 'd'
+def build_Ap(N: int, A: np.ndarray, w: np.ndarray) -> np.ndarray:
+    size = 4 * N
+    Ap = np.zeros((size, size))
+    # original-to-original block
+    Ap[:N, :N] = A
+
+    for i in range(N):
+        inds = {0: i, 1: N+3*i, 2: N+3*i+1, 3: N+3*i+2}
+        # gadget 'd' edges
+        Ap[inds[0], inds[1]] = w[0]  # orig → aug1
+        Ap[inds[1], inds[0]] = w[1]  # aug1 → orig
+        Ap[inds[0], inds[3]] = w[2]  # orig → aug3
+        Ap[inds[3], inds[0]] = w[3]  # aug3 → orig
+        Ap[inds[3], inds[2]] = w[4]  # aug3 → aug2
+        Ap[inds[2], inds[0]] = w[5]  # aug2 → orig
+
+    return row_normalize(Ap)
+
+#------------------------------------------------------------
+# Objective: second-largest eigenvalue magnitude (consensus rate)
+def consensus_rate(w: np.ndarray) -> float:
+    P = build_Ap(N, A_stochastic, w)
+    vals = np.abs(eigvals(P))
+    vals.sort()
+    return vals[-2]
+
+#------------------------------------------------------------
+# Optimization: find homogeneous weights w* subject to w[1]=2*w[3]
 w0 = np.ones(6)
 bounds = [(0.1, 5)] * 6
-cons = {
-    'type': 'eq',
-    'fun': lambda w: w[1] - 2*w[3]
-}
-
-res = minimize(
-    consensus_rate,
-    w0,
-    method="SLSQP",     
-    bounds=bounds,
-    constraints=[cons],
-)
-
+cons = {'type': 'eq', 'fun': lambda w: w[1] - 2*w[3]}
+res = minimize(consensus_rate, w0, method='SLSQP', bounds=bounds, constraints=[cons])
 w_opt = res.x
+print("Optimal weights w*:", np.round(w_opt, 4))
+print("λ₂(P) minimal =", np.round(res.fun, 4), "\n")
 
-
-print("Pesos ótimos (w*):", np.round(w_opt, 4))
-print("λ₂(P) mínimo =", np.round(res.fun, 4), "\n")
-
-
-Ap = build_Ap(N, A, w_opt)
-print("Matriz A^P completa:\n", Ap, "\n")
-
-# Cálculo do autovetor esquerdo v0 normalizado
-w_vals, V = eig(Ap.T)
+# Recompute P* and left eigenvector v0
+target = x0.mean()
+P_opt = build_Ap(N, A_stochastic, w_opt)
+w_vals, V = eig(P_opt.T)
 idx = np.argmin(np.abs(w_vals - 1))
-v0 = np.real(V[:, idx])
-v0 /= v0.sum()
-print("Left eigenvector v0 =", np.round(v0,3))
+v0 = np.real(V[:, idx]); v0 /= v0.sum()
+print("Left eigenvector v0 =", np.round(v0, 4), "\n")
 
-
-alpha = np.ones(N)
-beta  = np.ones(N)
-gamma = np.ones(N)
+#------------------------------------------------------------
+# Build augmented initial state x_p0
+alpha = np.random.rand(N)
+beta  = np.random.rand(N)
+gamma = np.random.rand(N)
 
 x_p0 = np.zeros(4*N)
 for j in range(N):
     a, b, g = alpha[j], beta[j], gamma[j]
     coeff = 4 * x0[j] / (a + b + g)
-    x_p0[N+3*j : N+3*j+3] = [coeff*a, coeff*b, coeff*g]
-target = x0.mean()
-x_p0 *= target / (v0 @ x_p0)
+    x_p0[N+3*j    ] = coeff * a
+    x_p0[N+3*j + 1] = coeff * b
+    x_p0[N+3*j + 2] = coeff * g
+# Rescale to consensus target
+data_scale = target / (v0 @ x_p0)
+x_p0 *= data_scale
 
-steps, tol = 100, 1e-4
-Xo = np.zeros((N, steps+1)); Xa = np.zeros((4*N, steps+1))
-Xo[:,0], Xa[:,0] = x0, x_p0
+#------------------------------------------------------------
+# Simulate consensus dynamics
+Xo = np.zeros((N, steps+1))
+Xa = np.zeros((4*N, steps+1))
+Xo[:, 0] = x0
+Xa[:, 0] = x_p0
 for k in range(steps):
-    Xo[:,k+1] = A @ Xo[:,k]
-    Xa[:,k+1] = Ap     @ Xa[:,k]
+    Xo[:, k+1] = A_stochastic @ Xo[:, k]
+    Xa[:, k+1] = P_opt        @ Xa[:, k]
 
-orig_conv = next(k for k in range(steps+1)
-                 if np.max(np.abs(Xo[:,k] - target)) < tol)
-aug_conv  = next(k for k in range(steps+1)
-                 if np.max(np.abs(Xa[:,k] - target)) < tol)
+# Determine convergence iterations with default
+orig_conv = next((k for k in range(steps+1)
+                  if np.max(np.abs(Xo[:,k] - target)) < tol), None)
+aug_conv  = next((k for k in range(steps+1)
+                  if np.max(np.abs(Xa[:,k] - target)) < tol), None)
+print(f"Original converged in {orig_conv} steps")
+print(f"Augmented converged in {aug_conv} steps")
 
-consensus_orig = Xo[:, orig_conv]
-consensus_aug  = Xa[:,  aug_conv]
-
-print(f"\nOriginal convergiu em {orig_conv} steps")
-print(" → Estado final (original):", np.round(consensus_orig, 4))
-
-print(f"Augmented convergiu em {aug_conv} steps")
-print(" → Estado final (augmented):", np.round(consensus_aug, 4))
-
-
+#------------------------------------------------------------
+# Plot trajectories
 fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8,10))
 for i in range(N):
-    ax1.plot(Xo[i], label=f'$x_{{{i+1}}}[k]$')
-ax1.axhline(target, ls='--', color='k', label=f'$\\bar x$={target:.2f}')
-ax1.set_title('(a) Consenso na rede original')
-ax1.legend(); ax1.grid()
+    ax1.plot(Xo[i], alpha=0.5)
+ax1.axhline(target, ls='--', color='k')
+ax1.set_title('Consensus on original network')
+ax1.grid()
 
 for i in range(4*N):
-    lbl = f'$x_{{{i+1}}}$' if i<N else f'$\\tilde x_{{{(i-N)//3+1},{(i-N)%3+1}}}$'
-    ax2.plot(Xa[i], label=lbl)
-ax2.axhline(target, ls='--', color='k', label=f'$\\bar x$={target:.2f}')
-ax2.set_title('(b) Consenso na rede aumentada (pesos homogêneos)')
-ax2.legend(ncol=3, fontsize='small'); ax2.grid()
-
+    ax2.plot(Xa[i], alpha=0.3)
+ax2.axhline(target, ls='--', color='k')
+ax2.set_title('Consensus on augmented network')
+ax2.grid()
 plt.tight_layout()
 plt.show()
