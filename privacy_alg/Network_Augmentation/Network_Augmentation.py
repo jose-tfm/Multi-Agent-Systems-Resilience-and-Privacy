@@ -17,29 +17,20 @@ def build_Ap(N, A):
         aug2 = N + 3*i + 1
         aug3 = N + 3*i + 2
         Ap[i, aug1] = 1
-        Ap[aug1, i] = 2
-        Ap[i, aug2] = 1
+        Ap[aug1, i] = 1
+        Ap[i, aug2] = 2
         Ap[aug2, aug3] = 1
         Ap[aug3, i] = 1
     return row_normalize(Ap)
 
 # Parameters
-N = 11
+N = 3
 A = np.array([
-    [0,   1/3, 1/3, 0,   0,   0,   0,   0,   0,   0,   1/3],
-    [1/3, 0,   1/3, 1/3, 0,   0,   0,   0,   0,   0,   0  ],
-    [1/3, 1/3, 0,   1/3, 0,   0,   0,   0,   0,   0,   0  ],
-    [0,   0,   1/3, 0,   1/3, 0,   0,   1/3, 0,   0,   0  ],
-    [0,   1/3, 0,   1/3, 0,   1/3, 0,   0,   0,   0,   0  ],
-    [0,   0,   0,   0,   1/3, 0,   1/3, 0,   0,   1/3, 0  ],
-    [0,   0,   0,   0,   0,   1/2, 0,   1/2, 0,   0,   0  ],
-    [0,   0,   0,   1/3, 0,   0,   1/3, 0,   1/3, 0,   0  ],
-    [0,   0,   0,   0,   0,   1/2, 0,   1/2, 0,   0,   0  ],
-    [0,   0,   0,   0,   0,   0,   1/3, 0,   0,   1/3, 1/3],
-    [1/2, 0,   0,   0,   0,   0,   0,   0,   0,   1/2, 0  ]
-])
-x0 = np.array([0.1,0.3,0.6,0.43,0.85,0.9,0.45,0.11,0.06,0.51,0.13])
-A_norm = row_normalize(A)
+    [0,   0.5, 0.5],
+    [0.5, 0,   0.5],
+    [0.5, 0.5, 0  ]
+], dtype=float)
+x0 = np.array([0.5, 1/3, 0.2])
 
 
 # Build and normalize A^P
@@ -50,29 +41,16 @@ w, V = np.linalg.eig(Ap.T)
 idx = np.argmin(np.abs(w - 1))
 v0 = np.real(V[:, idx])
 v0 = v0 / v0.sum()
-
-# ---- Observability check (unchanged) ----
-#C = np.hstack([np.eye(6), np.zeros((6,6))])
-#P_list = [C @ np.linalg.matrix_power(Ap, k) for k in range(4*N)]
-#P_O = np.vstack(P_list)
-#P_sym = sp.Matrix(P_O)
-#colspace = P_sym.columnspace()
-#e10 = sp.Matrix([[1 if i==9 else 0] for i in range(12)])
-#e12 = sp.Matrix([[1 if i==11 else 0] for i in range(12)])
-#print("e10 observable?", colspace.__contains__(e10))
-#print("e12 observable?", colspace.__contains__(e12))
-
-# Convert v0 to simple fractions (optional)
-#fracs = [sp.nsimplify(val) for val in v0]
-#denoms = [f.q for f in fracs]
-#lcm = math.lcm(*denoms)
-#ints = [int(fracs[i]*lcm) for i in range(len(fracs))]
-#print("v0 (normalized):", np.round(v0,6))
-
+abs_w = np.abs(w)
+idx_desc = np.argsort(-abs_w)
+second_idx = idx_desc[1]
+second_largest_mod = abs_w[second_idx]
+second_eig = w[second_idx]
+print("2º maior módulo de autovalor:", second_largest_mod)
 
 
 #  Inject initial conditions with alpha, beta, gamma 
-alpha = np.full(N, 1.4)
+alpha = np.full(N, 1.0)
 beta  = np.full(N, 1.0)
 gamma = np.full(N, 1.0)
 
@@ -109,7 +87,7 @@ X_orig[:,0] = x0
 X_aug[:,0]  = x_p0
 
 for k in range(steps):
-    X_orig[:,k+1] = A_norm @ X_orig[:,k]
+    X_orig[:,k+1] = A @ X_orig[:,k]
     X_aug[:,k+1]  = Ap     @ X_aug[:,k]
 
 # ---- Plotting ----

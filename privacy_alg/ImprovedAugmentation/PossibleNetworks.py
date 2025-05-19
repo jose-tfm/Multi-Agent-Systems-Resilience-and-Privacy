@@ -239,6 +239,18 @@ if __name__ == "__main__":
 
     Ap = build_Ap(N, A)
 
+    # Compute left-eigenvector v0 for A^P
+    w, V = np.linalg.eig(Ap.T)
+    idx = np.argmin(np.abs(w - 1))
+    v0 = np.real(V[:, idx])
+    v0 = v0 / v0.sum()
+    abs_w = np.abs(w)
+    idx_desc = np.argsort(-abs_w)
+    second_idx = idx_desc[1]
+    second_largest_mod = abs_w[second_idx]
+    second_eig = w[second_idx]
+    print("2º maior módulo de autovalor:", second_largest_mod)
+
 
     np.set_printoptions(precision=3, suppress=True)
     print("Augmented A^P =\n", Ap, "\n")
