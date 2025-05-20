@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.linalg import eig, eigvals
 from scipy.optimize import minimize
 import networkx as nx
-
+import random
 np.set_printoptions(
     threshold=np.inf,
     linewidth=200,
@@ -185,27 +185,38 @@ def build_Ap(N: int, A: np.ndarray, w: np.ndarray) -> np.ndarray:
 
 def consensus_rate(w: np.ndarray) -> float:
     ''' Calcular o segundo maior eigenvalue, quanto mais perto de 1, por a velocidade de convergencia'''
-    P = build_Ap(N, A, w)
+    P = build_Ap(N, A_stochastic, w)
     vals = np.abs(eigvals(P))
     vals.sort()
     return vals[-2]
 
+def make_strong_backbone(n, p, seed=None):
+    random.seed(seed)
+    G = nx.DiGraph()
+    G.add_nodes_from(range(n))
+    # add a directed cycle 0→1→2→…→n−1→0
+    for i in range(n):
+        G.add_edge(i, (i+1) % n)
+    # sprinkle extra random edges
+    for i in range(n):
+        for j in range(n):
+            if i!=j and random.random() < p:
+                G.add_edge(i,j)
+    return G
+
 # Parameters
-N = 2000                  # number of original nodes
-p = 0.03                  # edge creation probability
+N = 1000                 # number of original nodes
+p = 0.1                  # edge creation probability
 tol = 1e-4               # convergence tolerance
-steps = 100              # maximum iterations
+steps = 100            # maximum iterations
 
 #------------------------------------------------------------
-# 1) Build a large random directed graph and row‐stochastic A
-G = nx.erdos_renyi_graph(N, p, seed=42, directed=True)
+G = make_strong_backbone(N, p, seed=42)
 G.remove_edges_from(nx.selfloop_edges(G))
 A = nx.to_numpy_array(G, dtype=float)
 row_sums = A.sum(axis=1, keepdims=True)
-row_sums[row_sums == 0] = 1e-12  # avoid division by zero
+row_sums[row_sums == 0] = 1e-12
 A_stochastic = A / row_sums
-
-# 2) Generate a random initial state x0 on the original nodes
 x0 = np.random.rand(N)
 
 #------------------------------------------------------------

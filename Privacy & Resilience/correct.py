@@ -3,43 +3,49 @@ import matplotlib.pyplot as plt
 import itertools
 
 # ——————————————————————————————————————————————————————————————
-# 1) HELPERS & PRIVACY-AUGMENTATION
+# 1) HELPERS & PRIVACY-AUGMENTATION (Alg 1)
 # ——————————————————————————————————————————————————————————————
 np.set_printoptions(precision=3, suppress=True)
 
 def row_normalize(M):
+    """Make each row of M sum to 1."""
     return M / (M.sum(axis=1, keepdims=True) + 1e-12)
 
 def build_Ap(n, A):
+    """
+    Build the 4n×4n privacy-augmented matrix P^P:
+      - P[:n,:n] = A
+      - real↔aug1 weight 1, real→aug2 weight 2,
+      - aug2→aug3→real chain weight 1
+    """
     P = np.zeros((4*n, 4*n))
     P[:n, :n] = A
     for i in range(n):
-        a1, a2, a3 = n+3*i, n+3*i+1, n+3*i+2
-        
-        P[i,   a1] = 0.212; P[a1,  i ] = 1.2
-        P[i,   a3] = 0.6; P[a3, a2] = 1; P[a2, i  ] = 1
-        '''
-        P[i,   a1] = 1; P[a1,  i ] = 1
-        P[i,   a3] = 2; P[a3, a2] = 1; P[a2, i  ] = 1
-        '''
+        a1, a2, a3 = n + 3*i, n + 3*i + 1, n + 3*i + 2
+        P[i,   a1] = 1; P[a1,  i] = 1
+        P[i,   a2] = 2; P[a2, a3] = 1; P[a3, i] = 1
     return row_normalize(P)
 
 def minor(A, F):
+    """Remove rows/cols in F from A (fault-set removal)."""
     keep = [i for i in range(A.shape[0]) if i not in F]
-    return A[np.ix_(keep,keep)], keep
+    return A[np.ix_(keep, keep)], keep
+
 
 # ——————————————————————————————————————————————————————————————
-# 2) PROBLEM SETUP
+# 2) PROBLEM SETUP (Alg 3, input)
 # ——————————————————————————————————————————————————————————————
-agents       = [1,2,3,4,5]
-N            = len(agents)
-f            = 1
-ε            = 0.04
-T            = 55
+agents       = [1,2,3,4,5]      # V = [5]
+N            = len(agents)      # N = 5
+f            = 1                # resilience parameter
+ε            = 0.05             # precision parameter
+T            = 100              # number of iterations
 
+# initial states x⁽⁰⁾
 x0           = {1:0.10, 2:0.30, 3:0.35, 4:0.60, 5:0.55}
 attacker_val = {2: (lambda k: 0.30)}
-'''
+
+# adjacency for G₁
 adj = {
     1:[3,4,5],
     2:[3,4],
@@ -47,36 +53,29 @@ adj = {
     4:[1,2,3,5],
     5:[1,4]
 }
-'''
-adj = {
-    1:[2,3,4,5],
-    2:[1,3,4,5],
-    3:[1,2,4,5],
-    4:[1,2,3],
-    5:[1,2,3]
-}
 
-# build A
+# build the real-to-real matrix A
 A = np.zeros((N,N))
 for u in agents:
     for v in adj[u]:
         A[u-1,v-1] = 1/len(adj[u])
-print("Original A:\n", A, "\n")
 
 honest_avg = np.mean([x0[u] for u in agents if u not in attacker_val])
-print("Honest average =", honest_avg, "\n")
+print("Original A:\n", A, "\nHonest average =", honest_avg, "\n")
+
 
 # ——————————————————————————————————————————————————————————————
-# 3) ALL FAULT-SETS |F|≤f
+# 3) ENUMERATE FAULT-SETS F with |F| ≤ f (Alg 3, line 3)
 # ——————————————————————————————————————————————————————————————
 F_list = sorted(
     [frozenset(c)
      for k in range(f+1)
      for c in itertools.combinations(agents, k)],
-    key=lambda S:(len(S), sorted(S))
+    key=lambda S: (len(S), sorted(S))
 )
 idx_of = {F:i for i,F in enumerate(F_list)}
 print("Fault sets:", F_list, "\n")
+
 
 # ——————————————————————————————————————————————————————————————
 # 4) ALGORITHM 2: PRIVATE INIT (build P_pa, v0, x_priv)
@@ -119,6 +118,7 @@ for F in F_list:
     P_list.append(P_pa)
     surv_idxs.append(surv)
     x_priv_list.append(x_priv)
+
 
 # ——————————————————————————————————————————————————————————————
 # 5) SIMULATION: USE P_pa, THEN CLAMP ALL 3 SLOTS OF AGENT 2 TO 0.3

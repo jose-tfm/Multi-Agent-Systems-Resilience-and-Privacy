@@ -43,13 +43,13 @@ def build_Ap(N: int, A: np.ndarray, w: np.ndarray) -> np.ndarray:
 
         # ——————————————————————
         # a)
-        '''
+        
         Ap[inds[0], inds[1]] = w[0]
         Ap[inds[1], inds[0]] = w[1]
         Ap[inds[0], inds[3]] = w[2]
         Ap[inds[3], inds[2]] = w[3] 
         Ap[inds[2], inds[0]] = w[4]
-        '''
+        
         # ——————————————————————
         # b)
         '''
@@ -72,14 +72,14 @@ def build_Ap(N: int, A: np.ndarray, w: np.ndarray) -> np.ndarray:
         '''
         # ——————————————————————
         # d)
-        
+        '''
         Ap[inds[0], inds[1]] = w[0]
         Ap[inds[1], inds[0]] = w[1]
         Ap[inds[0], inds[3]] = w[2]
         Ap[inds[3], inds[0]] = w[3]
         Ap[inds[3], inds[2]] = w[4]
         Ap[inds[2], inds[0]] = w[5]
-        
+        '''
         # ——————————————————————
         # e)
         '''
