@@ -1,208 +1,218 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import itertools
-import os, sys
 
-# — ensure plot_state is importable —
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir  = os.path.abspath(os.path.join(current_dir, '..'))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-from utils.utils import plot_state
-
-
-# ——— Algorithm 2 helpers —————————————————————————————————————————
+# ——————————————————————————————————————————————————————————————
+# 1) HELPERS & PRIVACY-AUGMENTATION
+# ——————————————————————————————————————————————————————————————
+np.set_printoptions(precision=3, suppress=True)
 
 def row_normalize(M):
-    """Make each row of M sum to 1 (row-stochastic)."""
     return M / (M.sum(axis=1, keepdims=True) + 1e-12)
 
 def build_Ap(n, A):
-    """
-    Build the 4n×4n privacy-augmented matrix A^P from
-    an n×n base matrix A.
-    """
     P = np.zeros((4*n, 4*n))
     P[:n, :n] = A
     for i in range(n):
         a1, a2, a3 = n+3*i, n+3*i+1, n+3*i+2
-        P[i,  a1] = 1
-        P[a1, i ] = 2
-        P[i,  a2] = 1
-        P[a2, a3] = 1
-        P[a3, i ] = 1
+        
+        P[i,   a1] = 0.212; P[a1,  i ] = 1.2
+        P[i,   a3] = 0.6; P[a3, a2] = 1; P[a2, i  ] = 1
+        '''
+        P[i,   a1] = 1; P[a1,  i ] = 1
+        P[i,   a3] = 2; P[a3, a2] = 1; P[a2, i  ] = 1
+        '''
     return row_normalize(P)
 
 def minor(A, F):
-    """Remove rows & cols in index-set F from A."""
     keep = [i for i in range(A.shape[0]) if i not in F]
-    return A[np.ix_(keep, keep)], keep
+    return A[np.ix_(keep,keep)], keep
 
+# ——————————————————————————————————————————————————————————————
+# 2) PROBLEM SETUP
+# ——————————————————————————————————————————————————————————————
+agents       = [1,2,3,4,5]
+N            = len(agents)
+f            = 1
+ε            = 0.05
+T            = 30
 
-# ——— Problem setup for Fig 2(e): G₂, A₂={2,3} —————————————————————
-
-all_agents = [1,2,3,4,5]
-N          = len(all_agents)
-f          = 2           # resilience parameter
-ε          = 0.05        # precision threshold
-T          = 20          # number of iterations
-
-
-x0_dict = {1: 0.10, 2: 0.30, 3: 0.35, 4: 0.60, 5: 0.55}
-
-# attacked agents 2 and 3 with time-varying misbehavior
-attacker_vals = {
-    2: lambda k: 0.3 - 0.5/(1 + k**2),
-    3: lambda k: 0.3 + 0.6/(1 + k**2),
-}
-
-# adjacency list of G₂ (undirected)
+x0           = {1:0.10, 2:0.30, 3:0.35, 4:0.60, 5:0.55}
+attacker_val = {2: (lambda k: 0.30)}
+'''
 adj = {
-    1: [3,5,4],
-    2: [1,3,4,5],
-    3: [1,2,4,5],
-    4: [2,1,5],
-    5: [1,2,3],
+    1:[3,4,5],
+    2:[3,4],
+    3:[1,2,4],
+    4:[1,2,3,5],
+    5:[1,4]
+}
+'''
+adj = {
+    1:[2,3,4,5],
+    2:[1,3,4,5],
+    3:[1,2,4,5],
+    4:[1,2,3],
+    5:[1,2,3]
 }
 
-# build the N×N row-stochastic A from adj
+# build A
 A = np.zeros((N,N))
-for u in all_agents:
-    nbrs = adj[u]
-    w    = 1/len(nbrs)
-    for v in nbrs:
-        A[u-1, v-1] = w
+for u in agents:
+    for v in adj[u]:
+        A[u-1,v-1] = 1/len(adj[u])
+print("Original A:\n", A, "\n")
 
+honest_avg = np.mean([x0[u] for u in agents if u not in attacker_val])
+print("Honest average =", honest_avg, "\n")
 
-# ——— 1) Enumerate all failure-sets F ⊆ V, |F| ≤ f ——————————————————
+# ——————————————————————————————————————————————————————————————
+# 3) ALL FAULT-SETS |F|≤f
+# ——————————————————————————————————————————————————————————————
+F_list = sorted(
+    [frozenset(c)
+     for k in range(f+1)
+     for c in itertools.combinations(agents, k)],
+    key=lambda S:(len(S), sorted(S))
+)
+idx_of = {F:i for i,F in enumerate(F_list)}
+print("Fault sets:", F_list, "\n")
 
-F_list = []
-for k in range(f+1):
-    for combo in itertools.combinations(all_agents, k):
-        F_list.append(frozenset(combo))
-F_list = sorted(F_list, key=lambda S: (len(S), sorted(S)))
-idx_of = {F:i for i, F in enumerate(F_list)}
-
-
-# ——— 2) Algorithm 2: compute each survivor’s private init for each F ——
-
-# tilde_init[F][u] = the scalar initial candidate for u under subset F
-tilde_init = {F: {} for F in F_list}
+# ——————————————————————————————————————————————————————————————
+# 4) ALGORITHM 2: PRIVATE INIT (build P_pa, v0, x_priv)
+# ——————————————————————————————————————————————————————————————
+P_list      = []
+surv_idxs   = []
+x_priv_list = []
 
 for F in F_list:
-    # a) form minor of A & x0 without F
-    A_sub, surv_idx = minor(A, [u-1 for u in F])
-    x_sub           = np.array([ x0_dict[u] for u in all_agents if u not in F ])
-    n_sub           = len(surv_idx)
+    print("=== F =", F, "===")
+    A_sub, surv = minor(A, [u-1 for u in F])
+    A_sub = row_normalize(A_sub)
+    n_sub = len(surv)
+    print(" A_sub =\n", A_sub, "\n")
 
-    # b) privacy-augment this subgraph
-    P_sub = build_Ap(n_sub, A_sub)
+    # build privacy-augmented
+    P_pa = build_Ap(n_sub, A_sub)
+    print(" P_pa =\n", np.round(P_pa,3), "\n")
 
-    # c) compute left eigenvector v0 of P_sub^T
-    w, V  = np.linalg.eig(P_sub.T)
-    i1    = np.argmin(np.abs(w - 1))
-    v0    = np.real(V[:, i1])
-    v0   /= v0.sum()
+    # stationary left eigenvector
+    w, V = np.linalg.eig(P_pa.T)
+    i1   = np.argmin(np.abs(w-1))
+    v0   = np.real(V[:,i1]); v0 /= v0.sum()
+    print(" v^0 =", np.round(v0,3))
 
-    # d) split each x_sub into three shares
+    # closed-form private init
+    x_sub  = np.array([x0[agents[i]] for i in surv])
     x_priv = np.zeros(4*n_sub)
-    for j_sub, u_idx in enumerate(surv_idx):
-        u = u_idx + 1
-        # privacy-splitting coefficients
-        a, b, g = 1.4, 1.0, 1.0
-        S       = a + b + g
-        coeff   = 4 * x_sub[j_sub] / S
-        base    = n_sub + 3*j_sub
-        x_priv[base+0] = coeff * a
-        x_priv[base+1] = coeff * b
-        x_priv[base+2] = coeff * g
 
-    # e) global rescale so v0^T x_priv = average(x_sub)
+    # ——— lines 7–11: por agora α=β=γ=1
+    for j, u_idx in enumerate(surv):
+        xu = x_sub[j]
+        s  = 1 + 1 + 1 
+        base = n_sub + 3*j
+
+        x_priv[j] = 0.0
+        x_priv[base+0] = (4 * xu / s) * 1   
+        x_priv[base+1] = (4 * xu / s) * 1   
+        x_priv[base+2] = (4 * xu / s) * 1   
+
+  
     target  = x_sub.mean()
     current = v0 @ x_priv
-    x_priv *= (target / current)
+    x_priv *= (target/current)
 
-    # f) collapse each triple back to one scalar
-    for j_sub, u_idx in enumerate(surv_idx):
-        u    = u_idx + 1
-        base = n_sub + 3*j_sub
-        tilde_init[F][u] = (
-            x_priv[base] +
-            x_priv[base+1] +
-            x_priv[base+2]
-        )
+    print(" v0·x_priv =", float(v0@x_priv),
+        " target=", target)
 
+    P_list.append(P_pa)
+    surv_idxs.append(surv)
+    x_priv_list.append(x_priv)
+    print('x_augmentato =', x_priv_list)
 
-# ——— 3) Algorithm 3 init: build c[u][0][F] for every u, F —————————
-
-# c[u][t] will be a list of length |F_list|
-c = {u: {0: [None]*len(F_list)} for u in all_agents}
-
-for i, F in enumerate(F_list):
-    for u in all_agents:
-        if u in attacker_vals:
-            # attacked nodes seed with their own misbehavior
-            c
-        else:
-            # benign nodes: if u∈F, fallback to raw x0; else use tilde_init
-            if u not in tilde_init[F]:
-                c[u][0][i] = x0_dict[u]
-            else:
-                c[u][0][i] = tilde_init[F][u]
-
-
-# ——— 4) Candidate update & selection loop (Alg 3) ——————————————————
-
-def normal_step(u, k, F):
-    nbrs = [v for v in adj[u] if v not in F]
-    vals = [c[v][k][ idx_of[F] ] for v in nbrs]
-    # drop any None
-    vals = [v for v in vals if v is not None]
-    if not vals:
-        return c[u][k][ idx_of[F] ]
-    return sum(vals) / len(vals)
-
-def adv_step(u, k, F):
-    return attacker_vals[u](k)
-
-step = {
-    u: (adv_step if u in attacker_vals else normal_step)
-    for u in all_agents
-}
-
-# store the selected x_u[k] values
-x_hist = {u: [ x0_dict[u] ] for u in all_agents}
+# ——————————————————————————————————————————————————————————————
+# 5) SIMULATION: USE P_pa, THEN CLAMP ALL 3 SLOTS OF AGENT 2 TO 0.3
+# ——————————————————————————————————————————————————————————————
+X_list = [np.zeros((4*len(s), T+1)) for s in surv_idxs]
+for i in range(len(F_list)):
+    X_list[i][:,0] = x_priv_list[i]
 
 for k in range(T):
-    # (a) compute every candidate c_u[k+1][F]
-    for u in all_agents:
-        c[u][k+1] = [None]*len(F_list)
-        for i, F in enumerate(F_list):
-            c[u][k+1][i] = step[u](u, k, F)
+    for i,Pm in enumerate(P_list):
+        n_sub = len(surv_idxs[i])
+        # step
+        X_list[i][:,k+1] = Pm @ X_list[i][:,k]
 
-    # (b) selection: pick x_u[k+1]
-    for u in all_agents:
-        full = c[u][k+1][ idx_of[frozenset()] ]
-        bad  = []
-        for i, F in enumerate(F_list):
-            if u not in F and len(F)>0:
-                if abs(c[u][k+1][i] - full) >= ε:
-                    bad.append(i)
-        x_next = c[u][k+1][ bad[0] ] if len(bad)==1 else full
+        # clamp agent 2's privacy-slots so collapse=0.3
+        if 2 not in F_list[i]:
+            j_real = surv_idxs[i].index(2-1)
+            a1 = n_sub + 3*j_real
+            a2 = a1+1
+            a3 = a1+2
+            X_list[i][a1, k+1] = 0.3
+            X_list[i][a2, k+1] = 0.3
+            X_list[i][a3, k+1] = 0.3
+
+# ——————————————————————————————————————————————————————————————
+# 6) COLLAPSE → candidate vectors c[u][k]
+# ——————————————————————————————————————————————————————————————
+c = {u:{} for u in agents}
+for u in agents:
+    for k in range(T+1):
+        vec = []
+        for i,F in enumerate(F_list):
+            surv = surv_idxs[i]
+            if u in attacker_val:
+                # attacker always sends 0.3
+                vec.append(attacker_val[u](k))
+            elif u in F:
+                # removed nodes stay at initial
+                vec.append(x0[u])
+            else:
+                j = surv.index(u-1)
+                vec.append( X_list[i][ j, k ] )
+        c[u][k] = vec
+
+# ——————————————————————————————————————————————————————————————
+# 7) ALGORITHM 3: RESILIENT SELECTION & HISTORY
+# ——————————————————————————————————————————————————————————————
+x_hist = {u:[x0[u]] for u in agents}
+
+for k in range(1, T+1):
+    print(f"\n--- Round {k} ---")
+    for u in agents:
+        entries = ", ".join(f"{list(F_list[i])}:{c[u][k][i]:.3f}"
+                            for i in range(len(F_list)))
+        print(f" Agent {u}: c[{k}] = [{entries}]")
+
+    for u in agents:
+        if u in attacker_val:
+            x_next = attacker_val[u](k)
+        else:
+            full = c[u][k][idx_of[frozenset()]]
+            bads = [(i,abs(c[u][k][i]-full))
+                    for i,F in enumerate(F_list)
+                    if F and (u not in F) and abs(c[u][k][i]-full)>=ε]
+            if len(bads)==1:
+                x_next = c[u][k][bads[0][0]]
+                print(f"  Agent {u}: outlier→ F={F_list[bads[0][0]]}")
+            else:
+                x_next = full
+                print(f"  Agent {u}: keep full={full:.3f}")
         x_hist[u].append(x_next)
 
+# ——————————————————————————————————————————————————————————————
+# 8) PLOT
+# ——————————————————————————————————————————————————————————————
+X_resil = np.vstack([x_hist[u] for u in agents]).T
 
-# ——— 5) Plot the evolution —————————————————————————————————
-
-states   = np.vstack([np.array(x_hist[u]) for u in sorted(all_agents)]).T
-true_avg = np.mean([x0_dict[u] for u in all_agents if u not in attacker_vals])
-
-plot_state(
-    states,
-    true_avg,
-    attacker_vals,
-    sorted(all_agents),
-    title  = "Alg 3: Private & Resilient Consensus on G₂",
-    xlabel = "Iteration k",
-    ylabel = "x_u[k]"
-)
+plt.figure(figsize=(8,4))
+for i,u in enumerate(agents):
+    plt.plot(X_resil[:,i], label=f'$x_{{{u}}}$')
+plt.axhline(honest_avg, color='k', ls='--', lw=1,
+            label=f'honest avg={honest_avg:.2f}')
+plt.title('Alg 3: Private & Resilient Consensus on $G_1$')
+plt.xlabel('Step'); plt.ylabel('State')
+plt.legend(fontsize='small', ncol=3)
+plt.grid(True); plt.tight_layout()
+plt.show()

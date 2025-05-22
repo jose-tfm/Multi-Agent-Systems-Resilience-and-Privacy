@@ -183,7 +183,7 @@ def build_Ap(N: int, A: np.ndarray, w: np.ndarray) -> np.ndarray:
     return row_normalize(Ap)
 
 def consensus_rate(w: np.ndarray) -> float:
-    ''' Calcular o segundo maior eigenvalue, quanto mais perto de 1, por a velocidade de convergencia'''
+    ''' Calcular o segundo maior eigenvalue, quanto mais perto de 1 pior'''
     P = build_Ap(N, A, w)
     vals = np.abs(eigvals(P))
     vals.sort()
@@ -199,8 +199,8 @@ A = np.array([
 x0 = np.array([0.5, 1/3, 0.2])
 
 # Pesos do vector
-w0 = np.ones(6)
-bounds = [(0.1, 5)] * 6
+w0 = np.ones(5)
+bounds = [(0.1, 5)] * 5
 cons = {
     'type': 'eq',
     'fun': lambda w: w[1] - 2*w[3]

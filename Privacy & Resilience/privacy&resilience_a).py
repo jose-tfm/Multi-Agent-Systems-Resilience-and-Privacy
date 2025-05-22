@@ -15,13 +15,13 @@ def build_Ap(n, A):
     P[:n, :n] = A
     for i in range(n):
         a1, a2, a3 = n+3*i, n+3*i+1, n+3*i+2
-        
+        '''
         P[i,   a1] = 0.212; P[a1,  i ] = 1.2
         P[i,   a3] = 0.6; P[a3, a2] = 1; P[a2, i  ] = 1
         '''
         P[i,   a1] = 1; P[a1,  i ] = 1
         P[i,   a3] = 2; P[a3, a2] = 1; P[a2, i  ] = 1
-        '''
+        
     return row_normalize(P)
 
 def minor(A, F):
@@ -34,12 +34,12 @@ def minor(A, F):
 agents       = [1,2,3,4,5]
 N            = len(agents)
 f            = 1
-ε            = 0.04
-T            = 55
+ε            = 0.05
+T            = 60
 
 x0           = {1:0.10, 2:0.30, 3:0.35, 4:0.60, 5:0.55}
 attacker_val = {2: (lambda k: 0.30)}
-'''
+
 adj = {
     1:[3,4,5],
     2:[3,4],
@@ -55,6 +55,7 @@ adj = {
     4:[1,2,3],
     5:[1,2,3]
 }
+'''
 
 # build A
 A = np.zeros((N,N))
@@ -108,17 +109,29 @@ for F in F_list:
     for j,u_idx in enumerate(surv):
         xj    = x_sub[j]
         slots = [ j,
-                  n_sub+3*j,
-                  n_sub+3*j+1,
-                  n_sub+3*j+2 ]
+                n_sub+3*j,
+                n_sub+3*j+1,
+                n_sub+3*j+2 ]
         for ℓ in slots:
             x_priv[ℓ] = xj / (4 * n_sub * v0[ℓ])
-    print("  v0·x_priv =", round(float(v0@x_priv),3),
-          " target=", round(x_sub.mean(),3), "\n")
+
+    # force real-slots back to zero
+    for j in range(n_sub):
+        x_priv[j] = 0.0
+
+    target  = x_sub.mean()
+    current = v0 @ x_priv
+    x_priv *= (target / current)
+
+    print(" v0·x_priv =", float(v0@x_priv),
+        " target=", target)
 
     P_list.append(P_pa)
     surv_idxs.append(surv)
     x_priv_list.append(x_priv)
+    for i, x in enumerate(x_priv_list):
+        vals = [round(v, 3) for v in x.tolist()]
+        print(f"x_augmentato[{i}] = {vals}")
 
 # ——————————————————————————————————————————————————————————————
 # 5) SIMULATION: USE P_pa, THEN CLAMP ALL 3 SLOTS OF AGENT 2 TO 0.3
@@ -192,17 +205,22 @@ for k in range(1, T+1):
         x_hist[u].append(x_next)
 
 # ——————————————————————————————————————————————————————————————
-# 8) PLOT
+# 8) PLOT REAL-SLOT TRAJECTORIES
 # ——————————————————————————————————————————————————————————————
-X_resil = np.vstack([x_hist[u] for u in agents]).T
+i0 = idx_of[frozenset()]   # find the “no faults” case
+X0 = X_list[i0]            # shape is (4*N, T+1)
 
 plt.figure(figsize=(8,4))
-for i,u in enumerate(agents):
-    plt.plot(X_resil[:,i], label=f'$x_{{{u}}}$')
+for u in agents:
+    real_traj = x_hist[u]    # the real slot of agent u
+    plt.plot(real_traj, label=f'$x_{{{u}}}^{{(k)}}$')
+
 plt.axhline(honest_avg, color='k', ls='--', lw=1,
             label=f'honest avg={honest_avg:.2f}')
 plt.title('Alg 3: Private & Resilient Consensus on $G_1$')
-plt.xlabel('Step'); plt.ylabel('State')
-plt.legend(fontsize='small', ncol=3)
-plt.grid(True); plt.tight_layout()
+plt.xlabel('Iteration $k$')
+plt.ylabel('State')
+plt.legend(fontsize='small', ncol=2)
+plt.grid(True)
+plt.tight_layout()
 plt.show()
