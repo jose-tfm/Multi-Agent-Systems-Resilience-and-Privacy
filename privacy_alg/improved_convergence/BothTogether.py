@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import eigvals, eig
 from scipy.optimize import minimize
+import networkx as nx
 
 # ------------------------------------------------------------
 # Row-stochastic normalization
@@ -189,7 +190,7 @@ def consensus_rate_p(p: np.ndarray) -> float:
 
 # Simulate trajectories and compute convergence steps (fixed to avoid zeros after convergence)
 def simulate_and_metrics(A_mat: np.ndarray, x0: np.ndarray, N: int,
-                         tol=1e-4, max_steps=30):
+                         tol=1e-4, max_steps=50):
     P_mat = build_Ap(N, A_mat)
     # second largest eigenvalue
     eigs = np.abs(eigvals(P_mat)); eigs.sort(); lambda2 = eigs[-2]
@@ -227,97 +228,123 @@ def simulate_and_metrics(A_mat: np.ndarray, x0: np.ndarray, N: int,
         'Xa': Xa
     }
 
-# --- Main setup ---
+# ------------------------------------------------------------
+# --- Main setup using networkx to create a random connected graph ---
 
-N = 3
-raw_A = np.array([
-    [0,   0.3, 0.7],
-    [0.3, 0,   0.7],
-    [0.3, 0.7, 0  ]
-], dtype=float)
-x0 = np.array([0.5, 1/3, 0.2])
+# 1. Number of original nodes
+N = 50  # or change to 11 as needed
 
+# 2. Set a random seed for reproducibility
+seed = 4
+np.random.seed(seed)
 
-'''
-N = 11
-raw_A = np.array([
-    [0.   , 0.75 , 0.20 , 0.03 , 0.02 , 0.   , 0.   , 0.   , 0.   , 0.   , 0.   ],
-    [0.   , 0.   , 0.75 , 0.20 , 0.03 , 0.02 , 0.   , 0.   , 0.   , 0.   , 0.   ],
-    [0.02 , 0.   , 0.   , 0.75 , 0.20 , 0.03 , 0.   , 0.   , 0.   , 0.   , 0.   ],
-    [0.   , 0.03 , 0.   , 0.   , 0.75 , 0.20 , 0.02 , 0.   , 0.   , 0.   , 0.   ],
-    [0.   , 0.   , 0.03 , 0.   , 0.   , 0.75 , 0.20 , 0.02 , 0.   , 0.   , 0.   ],
-    [0.   , 0.   , 0.   , 0.03 , 0.   , 0.   , 0.75 , 0.20 , 0.02 , 0.   , 0.   ],
-    [0.   , 0.   , 0.   , 0.   , 0.03 , 0.   , 0.   , 0.75 , 0.20 , 0.02 , 0.   ],
-    [0.   , 0.   , 0.   , 0.   , 0.   , 0.03 , 0.   , 0.   , 0.75 , 0.20 , 0.02 ],
-    [0.02 , 0.   , 0.   , 0.   , 0.   , 0.   , 0.03 , 0.   , 0.   , 0.75 , 0.20 ],
-    [0.20 , 0.02 , 0.   , 0.   , 0.   , 0.   , 0.   , 0.03 , 0.   , 0.   , 0.75 ],
-    [0.75 , 0.20 , 0.02 , 0.   , 0.   , 0.   , 0.   , 0.   , 0.03 , 0.   , 0.   ]
-])
-x0    = np.array([0.1,0.3,0.6,0.43,0.85,0.9,0.45,0.11,0.06,0.51,0.13])
-'''
+# 3. Generate a random Erdos–Rényi graph until it is connected
+p_edge = 0.8  # probability for edge creation
+while True:
+    G = nx.erdos_renyi_graph(N, p_edge, seed=seed)
+    if nx.is_connected(G):
+        break
 
+# 4. Assign a random positive weight to each existing edge
+for u, v in G.edges():
+    G[u][v]['weight'] = np.random.rand()
+
+# 5. Visualize the initial graph
+pos = nx.spring_layout(G, seed=seed)
+plt.figure(figsize=(5, 5))
+nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=300)
+edge_weights = [G[u][v]['weight'] for u, v in G.edges()]
+scaled_widths = [2.0 * w for w in edge_weights]
+nx.draw_networkx_edges(G, pos, width=scaled_widths, edge_color='gray')
+nx.draw_networkx_labels(G, pos, font_size=10, font_color='black')
+edge_labels = {(u, v): f"{G[u][v]['weight']:.2f}" for u, v in G.edges()}
+nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
+plt.title(f"Initial Random Connected Graph (N={N})")
+plt.axis('off')
+plt.tight_layout()
+plt.show()
+
+# 6. Extract the weighted adjacency matrix and row-normalize to get raw_A
+raw_A = nx.to_numpy_array(G, nodelist=range(N), weight='weight', dtype=float)
+raw_A = row_normalize(raw_A)
+
+# 7. Define an arbitrary initial state x0
+x0 = np.random.rand(N)
+
+# 8. Build the mask of 'free' entries (where raw_A > 0)
 mask = raw_A > 0
-p0 = np.array([raw_A[i,j] for i in range(N) for j in range(N) if mask[i,j]])
-bounds = [(0.1, 10)] * p0.size
 
-# normalize and metrics for initial A
+# 9. Flatten the nonzero entries of raw_A into the vector p0
+p0 = np.array([raw_A[i, j] for i in range(N) for j in range(N) if mask[i, j]])
+
+# 10. Define box constraints for p (each p_i ∈ [0.1, 10])
+bounds = [(0.1, None)] * p0.size
+
+# ------------------------------------------------------------
+# 11. Normalize and compute metrics for the initial A
 A_initial = build_A_from_p(p0, mask)
 metrics_init = simulate_and_metrics(A_initial, x0, N)
 
-# optimize
-res = minimize(consensus_rate_p, p0, method='SLSQP', bounds=bounds)
+# 12. Optimize with SLSQP
+res = minimize(consensus_rate_p,
+               p0,
+               method='SLSQP',
+               bounds=bounds,
+               options={'ftol': 1e-9, 'maxiter': 500})
+
+# 13. Reconstruct the optimized A and compute metrics
 A_opt = build_A_from_p(res.x, mask)
 metrics_opt = simulate_and_metrics(A_opt, x0, N)
 
 # --- Print results ---
 print("A_original:")
-print(np.round(A_initial,3))
+print(np.round(A_initial, 3))
 print("Ap_original:")
-print(np.round(build_Ap(N, A_initial),3))
-print(f"lambda2(AP_original) = {metrics_init['lambda2']:.4f}")
+print(np.round(build_Ap(N, A_initial), 3))
+print(f"lambda2(Ap_original) = {metrics_init['lambda2']:.4f}")
 print(f"Convergence A_original in {metrics_init['orig_steps']} steps")
 print(f"Convergence Ap_original in {metrics_init['aug_steps']} steps")
 
 print("\nA_optimized:")
-print(np.round(A_opt,3))
+print(np.round(A_opt, 3))
 print("Ap_optimized:")
-print(np.round(build_Ap(N, A_opt),3))
-print(f"lambda2(AP_optimized) = {metrics_opt['lambda2']:.4f}")
+print(np.round(build_Ap(N, A_opt), 3))
+print(f"lambda2(Ap_optimized) = {metrics_opt['lambda2']:.4f}")
 print(f"Convergence A_optimized in {metrics_opt['orig_steps']} steps")
 print(f"Convergence Ap_optimized in {metrics_opt['aug_steps']} steps")
 
-# --- Plots 2x2 ---
-fig, axes = plt.subplots(2,2, figsize=(12,10))
+# --- Plots 2×2 for convergence trajectories ---
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 labels_o = [f'$x_{{{i+1}}}$' for i in range(N)]
-labels_a = [f'$\\tilde x_{{{(i-N)//3+1},{(i-N)%3+1}}}$' for i in range(N,4*N)]
+labels_a = [f'$\\tilde x_{{{(i-N)//3+1},{(i-N)%3+1}}}$' for i in range(N, 4*N)]
 
 # Original A convergence
 for i in range(N):
-    axes[0,0].plot(metrics_init['Xo'][i], label=labels_o[i])
-axes[0,0].set_title('Original A Convergence')
-axes[0,0].axhline(x0.mean(), ls='--', color='k')
+    axes[0, 0].plot(metrics_init['Xo'][i], label=labels_o[i])
+axes[0, 0].set_title('Original A Convergence')
+axes[0, 0].axhline(x0.mean(), ls='--', color='k')
 
 # Original Ap convergence
-for i in range(4*N):
-    axes[0,1].plot(metrics_init['Xa'][i], label=(labels_o+labels_a)[i])
-axes[0,1].set_title('Original Ap Convergence')
-axes[0,1].axhline(x0.mean(), ls='--', color='k')
+for i in range(4 * N):
+    axes[0, 1].plot(metrics_init['Xa'][i], label=(labels_o + labels_a)[i])
+axes[0, 1].set_title('Original Ap Convergence')
+axes[0, 1].axhline(x0.mean(), ls='--', color='k')
 
 # Optimized A convergence
 for i in range(N):
-    axes[1,0].plot(metrics_opt['Xo'][i], label=labels_o[i])
-axes[1,0].set_title('Optimized A Convergence')
-axes[1,0].axhline(x0.mean(), ls='--', color='k')
+    axes[1, 0].plot(metrics_opt['Xo'][i], label=labels_o[i])
+axes[1, 0].set_title('Optimized A Convergence')
+axes[1, 0].axhline(x0.mean(), ls='--', color='k')
 
 # Optimized Ap convergence
-for i in range(4*N):
-    axes[1,1].plot(metrics_opt['Xa'][i], label=(labels_o+labels_a)[i])
-axes[1,1].set_title('Optimized Ap Convergence')
-axes[1,1].axhline(x0.mean(), ls='--', color='k')
+for i in range(4 * N):
+    axes[1, 1].plot(metrics_opt['Xa'][i], label=(labels_o + labels_a)[i])
+axes[1, 1].set_title('Optimized Ap Convergence')
+axes[1, 1].axhline(x0.mean(), ls='--', color='k')
 
 for ax in axes.flatten():
     ax.grid()
-axes[0,0].legend(ncol=3, fontsize='small')
+axes[0, 0].legend(ncol=3, fontsize='small')
 
 plt.tight_layout()
 plt.show()

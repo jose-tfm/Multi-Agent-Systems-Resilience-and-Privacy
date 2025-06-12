@@ -223,7 +223,7 @@ x0 = np.array([0.1,0.3,0.6,0.43,0.85,0.9,0.45,0.11,0.06,0.51,0.13])
 
 # Pesos do vector
 w0 = np.ones(6)
-#bounds = [(0.01, None)] * 6
+bounds = [(0.01, None)] * 6
 
 res = minimize(
     consensus_rate,
