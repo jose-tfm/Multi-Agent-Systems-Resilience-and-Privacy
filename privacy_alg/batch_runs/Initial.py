@@ -4,6 +4,10 @@ import networkx as nx
 from scipy.linalg import eigvals, eig
 from scipy.optimize import minimize
 import pandas as pd
+import os
+from pathlib import Path
+from openpyxl import load_workbook
+from openpyxl.drawing.image import Image as XLImage
 
 # ------------------------------------------------------------
 # Row-stochastic normalization
@@ -245,42 +249,48 @@ def one_experiment(N: int,
                    x0: np.ndarray,
                    tol: float = 1e-4,
                    max_steps: int = 500) -> dict:
-    # -- build random connected weighted ER graph
-    np.random.seed(seed)
+
+    rng = np.random.RandomState(seed)
+
     while True:
-        G = nx.erdos_renyi_graph(N, p_edge, seed=seed)
-        if nx.is_connected(G):
+        D = nx.gnp_random_graph(N,
+                                p_edge,
+                                seed=rng,
+                                directed=True)
+        if nx.is_strongly_connected(D):
+            G = D
             break
+
+    # 3) Assign random weights from the same RNG
     for u, v in G.edges():
-        G[u][v]['weight'] = np.random.rand()
+        G[u][v]['weight'] = rng.rand()
 
-    raw_A = row_normalize(nx.to_numpy_array(G,
-                                           nodelist=range(N),
-                                           weight='weight'))
+    # 4) Build the row‐normalized adjacency A0
+    raw_A = row_normalize(nx.to_numpy_array(G, nodelist=range(N), weight='weight'))
     mask  = raw_A > 0
+    p0    = np.array([raw_A[i, j]
+                      for i in range(N) for j in range(N)
+                      if mask[i, j]])
+    A0    = build_A_from_p(p0, mask)
 
-    # flatten free variables
-    p0   = np.array([raw_A[i, j]
-                     for i in range(N) for j in range(N) if mask[i, j]])
-    A0   = build_A_from_p(p0, mask)
-
-    # simulate original
+    # 5) Simulate the original
     init_m = simulate_and_metrics(A0, x0, tol, max_steps)
 
-    # optimize with correct mask
+    # 6) Optimize only the free entries
     obj = make_obj(N, mask)
     res = minimize(obj,
                    p0,
                    method='SLSQP',
                    bounds=[(0.1, None)] * p0.size,
-                   options={'ftol': 1e-9, 'maxiter': 500})
-    p_opt = res.x
-    A_opt = build_A_from_p(p_opt, mask)
+                   options={'ftol': 1e-9, 'maxiter': 200})
 
-    # simulate optimized
+    # 7) Build & simulate the optimized A
+    A_opt = build_A_from_p(res.x, mask)
     opt_m = simulate_and_metrics(A_opt, x0, tol, max_steps)
 
     return {
+        'run':            seed,       
+        'A0':             A0,          
         'lambda2_init':   init_m['lambda2'],
         'lambda2_opt':    opt_m['lambda2'],
         'steps_init':     init_m['orig_steps'],
@@ -290,55 +300,89 @@ def one_experiment(N: int,
         'success':        res.success
     }
 
-
 if __name__ == "__main__":
-    N        = 11     
-    p_edge   = 0.8 
-    num_runs = 50 
+    N        = 50
+    p_edge   = 0.3
+    num_runs = 70
 
-    # fix a common initial state
-    x0_common = np.array([0.1, 0.3, 0.6, 0.43, 0.85,
-                          0.9, 0.45, 0.11, 0.06, 0.51, 0.13])
+    #11x11
+    #x0_common = np.array([0.1,0.3,0.6,0.43,0.85,0.9,0.45,0.11,0.06,0.51,0.13])
 
+    #20x20
+    #x0_common = np.array([0.1, 0.3, 0.6, 0.43, 0.85, 0.9, 0.45, 0.11, 0.06, 0.51, 0.13, 0.27, 0.72, 0.14, 0.99, 0.34, 0.58, 0.21, 0.47, 0.80])
+    
+    #50x50
+    rng = np.random.RandomState(1234)
+    x0_common = rng.rand(50)
     results = []
+    all_A0 = []
+
+
+
+    # 1) Run experiments
     for run in range(num_runs):
         seed = 4 + run
-        m = one_experiment(N,
-                           seed,
-                           p_edge,
-                           x0_common,
-                           tol=1e-4,
-                           max_steps=500)
+        m = one_experiment(N, seed, p_edge, x0_common,
+                           tol=1e-4, max_steps=1000)
+        m['run'] = run+1
+        # compute % speedup
+        if m['aug_steps_init'] and m['aug_steps_opt']:
+            m['pct_speedup'] = 100*(m['aug_steps_init']-m['aug_steps_opt'])/m['aug_steps_init']
+        else:
+            m['pct_speedup'] = np.nan
         results.append(m)
+        all_A0.append(m['A0'])         # stash each A0
+        print(f"Run {run+1}/{num_runs}: P_init={m['aug_steps_init']}, "
+              f"P_opt={m['aug_steps_opt']}, speedup={m['pct_speedup']:.1f}%")
 
-        # original A convergence
-        si  = m['steps_init']     if m['steps_init']     is not None else ">=500"
-        sai = m['aug_steps_init'] if m['aug_steps_init'] is not None else ">=500"
-        
-        # optimized A convergence
-        so  = m['steps_opt']      if m['steps_opt']      is not None else ">=500"
-        sao = m['aug_steps_opt']  if m['aug_steps_opt']  is not None else ">=500"
+    # 2) Build summary DataFrame
+    df = pd.DataFrame(results)[[
+        'run','lambda2_init','lambda2_opt',
+        'aug_steps_init','aug_steps_opt','pct_speedup'
+    ]]
 
-        print(f"Run {run+1:2d}/{num_runs:2d} — "
-              f"λ2_init={m['lambda2_init']:.4f}, P_init steps={sai};  "
-              f"λ2_opt={m['lambda2_opt']:.4f}, P_opt steps={sao} "
-              f"[opt {'OK' if m['success'] else 'FAIL'}]")
+    # 3) Ensure output folder
+    out_dir = Path("ExcelDataRuns")
+    out_dir.mkdir(exist_ok=True)
 
-    df = pd.DataFrame(results)
-    print("\n=== Summary over {:d} runs ===".format(num_runs))
-    for col in ['lambda2_init','lambda2_opt',
-                'aug_steps_init','aug_steps_opt']:
-        mean_, std_ = df[col].mean(), df[col].std(ddof=1)
-        print(f"{col:15s}: mean={mean_:.4f}, std={std_:.4f}")
+    # 4) Save summary + boxplot
+    excel_path = out_dir/"InitialA_N=50_P=0.3.xlsx"
+    df.to_excel(excel_path, sheet_name="Summary", index=False)
 
-    # optional: histograms
-    fig, axes = plt.subplots(2, 2, figsize=(15, 8))
-    axes = axes.flatten()
-    for ax, col in zip(axes,
-                       ['lambda2_init','lambda2_opt',
-                        'aug_steps_init','aug_steps_opt']):
-        ax.hist(df[col].dropna(), bins=10)
-        ax.axvline(df[col].mean(), linestyle='--')
-        ax.set_title(col)
+    # boxplot
+    plt.figure()
+    df[['aug_steps_init','aug_steps_opt']].boxplot()
+    plt.title("Augmented Steps: Before vs After Optimization")
+    plt.ylabel("Iterations to Converge")
+    plot_path = out_dir/"boxplot.png"
     plt.tight_layout()
-    plt.show()
+    plt.savefig(plot_path)
+    plt.close()
+
+    # 5) Open with openpyxl, insert matrices then the plot
+    wb = load_workbook(excel_path)
+    ws = wb["Summary"]
+
+    # determine where the table ends (header row + df rows)
+    table_end_row = 1 + len(df)  # header on row 1, data rows follow
+
+    # we’ll start dumping matrices two rows below that
+    current_row = table_end_row + 2
+
+    for idx, A0 in enumerate(all_A0, start=1):
+        # write a run header
+        ws.cell(row=current_row, column=1).value = f"Run {idx} — initial A"
+        # write the N×N block
+        for i in range(N):
+            for j in range(N):
+                # round to 3 decimals
+                ws.cell(row=current_row+1+i, column=1+j).value = float(f"{A0[i,j]:.3f}")
+
+        current_row += N + 2
+
+
+    img = XLImage(str(plot_path))
+    ws.add_image(img, f"A{current_row}")
+
+    wb.save(excel_path)
+    print(f"Saved Excel (with tables, matrices, and boxplot) to {excel_path}")

@@ -232,7 +232,7 @@ def simulate_and_metrics(A_mat: np.ndarray, x0: np.ndarray, N: int,
 # --- Main setup using networkx to create a random connected graph ---
 
 # 1. Number of original nodes
-N = 50  # or change to 11 as needed
+N = 11  # or change to 11 as needed
 
 # 2. Set a random seed for reproducibility
 seed = 4
