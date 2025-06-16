@@ -245,7 +245,7 @@ def make_obj(N: int, mask: np.ndarray):
 # -------------------------------------------------------------------
 if __name__ == "__main__":
     N        = 50     
-    p_edge   = 0.3      
+    p_edge   = 0.6      
     num_runs = 70       
     rng      = np.random.RandomState(1234)
     x0_common = rng.rand(N)
@@ -260,10 +260,7 @@ if __name__ == "__main__":
         r_rng = np.random.RandomState(seed)
 
         while True:
-            D = nx.gnp_random_graph(N,
-                                    p_edge,
-                                    seed=rng,
-                                    directed=True)
+            D = nx.gnp_random_graph(N, p_edge, seed=rng, directed=True)
             if nx.is_strongly_connected(D):
                 G = D
                 break
@@ -322,7 +319,7 @@ if __name__ == "__main__":
     out_dir.mkdir(exist_ok=True)
 
     # write summary to Excel
-    excel_path = out_dir/f"Both_N=50_P=0.3.xlsx"
+    excel_path = out_dir/f"Both_N=50_P=0.6.xlsx"
     df.to_excel(excel_path, sheet_name="Summary", index=False)
 
     # make boxplot of augmented steps

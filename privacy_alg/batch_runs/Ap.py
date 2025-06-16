@@ -223,7 +223,7 @@ def simulate_P_metrics(P: np.ndarray, x0: np.ndarray,
 
 if __name__ == "__main__":
 
-    N = 20
+    N = 50
     p_edge = 0.6
     num_runs = 70
     
@@ -242,8 +242,12 @@ if __name__ == "__main__":
 
         # build connected ER graph
         while True:
-            G = nx.erdos_renyi_graph(N, p_edge, seed=rng_run)
-            if nx.is_connected(G):
+            D = nx.gnp_random_graph(N,
+                                    p_edge,
+                                    seed=rng,
+                                    directed=True)
+            if nx.is_strongly_connected(D):
+                G = D
                 break
 
         # random positive weights
@@ -301,7 +305,7 @@ if __name__ == "__main__":
 
     # prepare output folder
     out_dir = Path("ExcelDataRuns"); out_dir.mkdir(exist_ok=True)
-    excel_path = out_dir/f"Ap_N=20_P=0.6.xlsx"
+    excel_path = out_dir/f"Ap_N=50_P=0.6.xlsx"
 
 
     df.to_excel(excel_path, sheet_name="Summary", index=False)
