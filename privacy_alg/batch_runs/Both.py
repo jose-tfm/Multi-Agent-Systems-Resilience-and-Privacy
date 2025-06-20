@@ -13,14 +13,11 @@ from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
 
 
-# ------------------------------------------------------------
-# Row-stochastic normalization
 def row_normalize(M: np.ndarray) -> np.ndarray:
     s = M.sum(axis=1, keepdims=True)
     s[s == 0] = 1e-12
     return M / s
 
-# Build augmented P with fixed gadget weights
 def build_Ap(N: int, A: np.ndarray) -> np.ndarray:
     size = 4 * N
     Ap = np.zeros((size, size))
@@ -195,16 +192,11 @@ def simulate_and_metrics(A: np.ndarray,
                          tol: float = 1e-4,
                          max_steps: int = 500
                         ) -> dict:
-    """
-    Simulate both x_{k+1}=A x_k and augmented x_{k+1}=P x_k,
-    return lambda2, orig_steps and aug_steps.
-    """
+    
     N = A.shape[0]
     P = build_Ap(N, A)
-    # λ₂
     ev = np.abs(eigvals(P))
     lambda2 = np.sort(ev)[-2]
-    # build x_p0 that respects stationary left eigenvector
     w, V = eig(P.T)
     idx = np.argmin(np.abs(w - 1))
     v0 = np.real(V[:, idx])
@@ -214,7 +206,7 @@ def simulate_and_metrics(A: np.ndarray,
     for i in range(N):
         x_p0[N+3*i:N+3*i+3] = 4*x0[i]/3
     x_p0 *= target / (v0 @ x_p0)
-    # simulate
+
     orig_steps = aug_steps = None
     xo = x0.copy()
     xa = x_p0.copy()
@@ -240,9 +232,7 @@ def make_obj(N: int, mask: np.ndarray):
         return np.sort(np.abs(eigvals(build_Ap(N, A))))[-2]
     return obj
 
-# -------------------------------------------------------------------
-# 2) Main experiment loop + Excel export
-# -------------------------------------------------------------------
+
 if __name__ == "__main__":
     N        = 50     
     p_edge   = 0.6      
@@ -250,7 +240,6 @@ if __name__ == "__main__":
     rng      = np.random.RandomState(1234)
     x0_common = rng.rand(N)
 
-    # storage
     summary = []
     all_A0  = []
     all_Aopt= []
@@ -264,20 +253,16 @@ if __name__ == "__main__":
             if nx.is_strongly_connected(D):
                 G = D
                 break
-        # random positive weights
         for u, v in G.edges():
             G[u][v]['weight'] = r_rng.rand()
-        # build A0
         raw_A = row_normalize(nx.to_numpy_array(G, nodelist=range(N), weight='weight'))
         mask  = raw_A > 0
         p0    = np.array([raw_A[i,j] for i in range(N) for j in range(N) if mask[i,j]])
         A0    = build_A_from_p(p0, mask)
         all_A0.append(A0)
 
-        # simulate initial
         m0 = simulate_and_metrics(A0, x0_common, tol=1e-4, max_steps=500)
 
-        # optimize
         res = minimize(
             make_obj(N, mask),
             p0,
@@ -289,7 +274,6 @@ if __name__ == "__main__":
         all_Aopt.append(Aopt)
         m1   = simulate_and_metrics(Aopt, x0_common, tol=1e-4, max_steps=500)
 
-        # percentage speedup in augmented convergence
         if m0['aug_steps'] and m1['aug_steps']:
             pct = 100*(m0['aug_steps'] - m1['aug_steps'])/m0['aug_steps']
         else:
@@ -311,18 +295,13 @@ if __name__ == "__main__":
             f"speedup={pct:.1f}%"
         )
 
-    # build DataFrame
     df = pd.DataFrame(summary)
-
-    # prepare output folder
     out_dir = Path("ExcelDataRuns")
     out_dir.mkdir(exist_ok=True)
 
-    # write summary to Excel
     excel_path = out_dir/f"Both_N=50_P=0.6.xlsx"
     df.to_excel(excel_path, sheet_name="Summary", index=False)
 
-    # make boxplot of augmented steps
     plt.figure()
     df[['aug_steps_init','aug_steps_opt']].boxplot()
     plt.title("Augmented Convergence Steps: before vs after")
@@ -330,27 +309,22 @@ if __name__ == "__main__":
     box_png = out_dir/"boxplot.png"
     plt.tight_layout(); plt.savefig(box_png); plt.close()
 
-    # insert the A₀ and Aopt matrices plus the plot
     wb = load_workbook(excel_path)
     ws = wb["Summary"]
 
-    # after the table
     row0 = 1 + len(df) + 2
     for idx, (A0, Aopt) in enumerate(zip(all_A0, all_Aopt), start=1):
-        # label + A₀
         ws.cell(row=row0, column=1).value = f"Run {idx} — A₀"
         for i in range(N):
             for j in range(N):
                 ws.cell(row=row0+1+i, column=1+j).value = float(f"{A0[i,j]:.3f}")
         row0 += N+2
-        # label + Aopt
         ws.cell(row=row0, column=1).value = f"Run {idx} — A_opt"
         for i in range(N):
             for j in range(N):
                 ws.cell(row=row0+1+i, column=1+j).value = float(f"{Aopt[i,j]:.3f}")
         row0 += N+2
 
-    # embed the boxplot
     img = XLImage(str(box_png))
     ws.add_image(img, f"A{row0}")
 
