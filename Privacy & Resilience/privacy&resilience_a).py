@@ -281,7 +281,7 @@ def simulate_resilient_consensus(A, x0_dict, attacker_val, f, epsilon, T):
 
 def run_50_random_trials(N=11, p_edge=0.8, f=1, epsilon=0.05, T=200, seed0=4):
     summary_records = []
-    with ExcelWriter('50_trials.xlsx', engine='openpyxl') as writer:
+    with ExcelWriter('No Optimization.xlsx', engine='openpyxl') as writer:
         wb = writer.book
         ws_plots = wb.create_sheet('plots')
 

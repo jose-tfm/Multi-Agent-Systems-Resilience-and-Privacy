@@ -252,7 +252,7 @@ def local_sanity_check_vars(p_star: np.ndarray, mask_flat: np.ndarray, size: int
 # ------------------------------------------------------------
 # Build initial A via a random connected graph
 
-N = 50  # number of original nodes
+N = 11  # number of original nodes
 
 # 1. Set a random seed for reproducibility
 seed = 4
