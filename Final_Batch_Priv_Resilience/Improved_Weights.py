@@ -157,12 +157,12 @@ def simulate_resilient_consensus(
     return histories, filters, conv_rounds, full_trajs, honest_avg, priv_dict, eig_dict, F_list
 
 def run_trials(
-    N=11,p_edge=0.8,f=1,eps=0.08,T=100,seed0=4,trials=20
+    N=11,p_edge=0.8,f=1,eps=0.08,T=200,seed0=4,trials=20
 ):
     records=[]
     matrix_rows=[]
 
-    with ExcelWriter('OptW_Comparison.xlsx',engine='openpyxl') as writer:
+    with ExcelWriter('Improved_Weights_11x11.xlsx',engine='openpyxl') as writer:
         wb=writer.book
         ws_plots=wb.create_sheet('plots')
 
@@ -257,12 +257,21 @@ def run_trials(
         df=DataFrame(records); df.to_excel(writer,'summary',index=False)
 
         # boxplot
-        fig,ax=plt.subplots(figsize=(6,4))
-        ax.boxplot([df['Base_k'],df['OptW_k']],labels=['Base','OptW'])
-        ax.set_title('Detection Steps'); ax.set_ylabel('k')
-        buf=io.BytesIO(); fig.tight_layout(); fig.savefig(buf,format='png')
-        plt.close(fig); buf.seek(0)
-        ws2=wb.create_sheet('boxplot'); ws2.add_image(OpenPyXLImage(buf),'A1')
+        fig, ax = plt.subplots(figsize=(6, 4))
+        # drop any NaNs and convert to plain Python lists
+        base_vals = df['Base_k'].dropna().tolist()
+        optw_vals = df['OptW_k'].dropna().tolist()
+        ax.boxplot([base_vals, optw_vals], labels=['Base', 'OptW'])
+        ax.set_title('Detection Steps')
+        ax.set_ylabel('k')
+        # make sure the layout is tight before saving
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        ws2 = wb.create_sheet('boxplot')
+        ws2.add_image(OpenPyXLImage(buf), 'A1')
 
         # all_matrices
         DataFrame(matrix_rows).to_excel(writer,'all_matrices',index=False)
@@ -271,5 +280,5 @@ def run_trials(
     return DataFrame(records)
 
 if __name__=='__main__':
-    df=run_trials(trials=10)
+    df=run_trials(trials=50)
     print(df.describe())

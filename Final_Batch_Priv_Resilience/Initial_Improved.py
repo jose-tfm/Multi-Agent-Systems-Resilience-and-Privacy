@@ -231,13 +231,13 @@ def step_subgraph(filter_flags: dict[int,list[bool]], honest: list[int], T:int) 
 # --- Batch runner comparing original vs optimized subgraph detection ---
 def run_trials(
     N:int=11, p_edge:float=0.8, f:int=1,
-    eps:float=0.08, T:int=100,
+    eps:float=0.05, T:int=400,
     seed0:int=4, trials:int=20
 ) -> DataFrame:
     records = []
     matrix_rows = []
 
-    with ExcelWriter('Initial_Matrix.xlsx', engine='openpyxl') as writer:
+    with ExcelWriter('Initial_Improved_0.05.xlsx', engine='openpyxl') as writer:
         wb = writer.book
         ws_plots = wb.create_sheet('plots')
 
@@ -391,5 +391,5 @@ def run_trials(
     return DataFrame(records)
 
 if __name__ == '__main__':
-    df = run_trials(trials=1)
+    df = run_trials(trials=50)
     print(df.describe())
