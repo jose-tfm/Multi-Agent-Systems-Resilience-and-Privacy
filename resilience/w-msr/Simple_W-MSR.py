@@ -13,41 +13,70 @@ if parent_dir not in sys.path:
 # CONFIGURATION - Easy to modify for different tests
 # ============================================================================
 
-# Network topology (same as original)
-neighbors = [
-    [9, 1, 4, 7, 6],        
-    [0, 9, 2, 3, 8, 5, 6],   
-    [3, 9, 5, 1, 6, 4],      
-    [2, 9, 5, 8, 4, 6, 1],   
-    [0, 6, 8, 7, 9, 1],      
-    [5, 8, 7, 6, 1, 9, 4, 2],
-    [5, 8, 7, 4, 1, 3, 0],   
-    [8, 6, 4, 0],           
-    [7, 5, 3, 6, 4, 1, 9],    
-    [2, 0, 3, 1, 5, 8, 6, 4]  
-]
+# CHOOSE NETWORK SIZE: Set to True for small network, False for large network
+USE_SMALL_NETWORK = True
 
-# Initial state for agents (same as original)
-x0 = [0.1, 0.3, 0.7, 0.8, 0.2, 0.9, 0.5, 0.4, 0.6, 0.3]
-indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-max_iterations = 30
-f = 2
+if USE_SMALL_NETWORK:
+    # ==== SMALL 4-AGENT NETWORK ====
+    neighbors = [
+        [0, 1, 2, 3],       
+        [0, 1, 2, 3],   
+        [0, 1, 2, 3],
+        [0, 1, 2, 3], 
+    ]
+    x0 = [0.2, 1.0, 0.0, 0.6]
+    indices = [1, 2, 3, 4]  # 1-indexed for plotting
+    max_iterations = 30
+    f = 1  # For 4 agents, f=1 is appropriate (removes 1 min + 1 max, leaves 2 values)
+    
+    print("🔬 USING SMALL 4-AGENT NETWORK FOR TESTING")
+    
+else:
+    # ==== LARGE 10-AGENT NETWORK (ORIGINAL) ====
+    neighbors = [
+        [9, 1, 4, 7, 6],        
+        [0, 9, 2, 3, 8, 5, 6],   
+        [3, 9, 5, 1, 6, 4],      
+        [2, 9, 5, 8, 4, 6, 1],   
+        [0, 6, 8, 7, 9, 1],      
+        [5, 8, 7, 6, 1, 9, 4, 2],
+        [5, 8, 7, 4, 1, 3, 0],   
+        [8, 6, 4, 0],           
+        [7, 5, 3, 6, 4, 1, 9],    
+        [2, 0, 3, 1, 5, 8, 6, 4]  
+    ]
+    x0 = [0.1, 0.3, 0.7, 0.8, 0.2, 0.9, 0.5, 0.4, 0.6, 0.3]
+    indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  # 1-indexed for plotting
+    max_iterations = 30
+    f = 2  # For 10 agents, f=2 is appropriate for Byzantine fault tolerance
+    
+    print("🏗️ USING LARGE 10-AGENT NETWORK (ORIGINAL)")
 
 # ============================================================================
-# ATTACK SCENARIOS - Choose one by uncommenting
+# ATTACK SCENARIOS - Choose one by uncommenting (adjust based on network size)
 # ============================================================================
 
-# Test 1: Single attacker (agent 0)
-# att_v = {0: (lambda t: 0.3)}
-
-# Test 2: Single attacker (agent 8) 
-# att_v = {8: (lambda t: 0.8)}
-
-# Test 3: Two attackers (original configuration)
-att_v = {0: (lambda t: 0.3), 8: (lambda t: 0.8)}
-
-# Test 4: Two different attackers
-# att_v = {2: (lambda t: 0.1), 7: (lambda t: 0.9)}
+if USE_SMALL_NETWORK:
+    # Small network attack scenarios
+    # Test 1: Single attacker (agent 0)
+    att_v = {0: (lambda t: 0.3)}
+    
+    # Test 2: Single attacker (agent 3) 
+    # att_v = {3: (lambda t: 0.8)}
+    
+else:
+    # Large network attack scenarios
+    # Test 1: Single attacker (agent 0)
+    # att_v = {0: (lambda t: 0.3)}
+    
+    # Test 2: Single attacker (agent 8) 
+    # att_v = {8: (lambda t: 0.8)}
+    
+    # Test 3: Two attackers (original configuration)
+    att_v = {0: (lambda t: 0.3), 8: (lambda t: 0.8)}
+    
+    # Test 4: Two different attackers
+    # att_v = {2: (lambda t: 0.1), 7: (lambda t: 0.9)}
 
 print(f"Testing with {len(att_v)} attacker(s): {list(att_v.keys())}")
 
@@ -146,7 +175,7 @@ def msr_consensus_custom(x0, neighbors, max_iterations, f, attck_vals={}):
             convergence_info['honest_variance'].append(variance)
             
             # More robust convergence detection
-            convergence_threshold = 1e-3
+            convergence_threshold = 1e-8
             if variance < convergence_threshold and not convergence_info['converged']:
                 # Double-check: ensure convergence is stable for at least 2 iterations
                 if (len(convergence_info['honest_variance']) >= 2 and 
@@ -160,7 +189,7 @@ def msr_consensus_custom(x0, neighbors, max_iterations, f, attck_vals={}):
             
             # Stop early if converged for several iterations (optional)
             if (convergence_info['converged'] and 
-                k + 1 - convergence_info['convergence_round'] >= 5):
+                k + 1 - convergence_info['convergence_round'] >= 20):
                 print(f"  Early stopping: Stable convergence maintained for 5 iterations")
                 break
     
@@ -180,19 +209,20 @@ def plot_network_topology(neighbors, att_v, title="Network Topology", save_path=
       - title: Plot title
       - save_path: Optional path to save the figure (e.g., 'network.pdf', 'network.png')
     """
-    # Create NetworkX graph
-    G = nx.Graph()
+    # Create NetworkX DIRECTED graph
+    G = nx.DiGraph()
     num_agents = len(neighbors)
     
     # Add nodes
     for i in range(num_agents):
         G.add_node(i)
     
-    # Add edges
+    # Add DIRECTED edges based on neighbor lists
     for i, neighbor_list in enumerate(neighbors):
         for neighbor in neighbor_list:
             if neighbor < num_agents:  # Ensure valid neighbor index
-                G.add_edge(i, neighbor)
+                # Agent i receives information FROM neighbor j
+                G.add_edge(neighbor, i)
     
     # Set up the plot with high DPI for publication quality
     plt.figure(figsize=(12, 10), dpi=300)
@@ -212,12 +242,12 @@ def plot_network_topology(neighbors, att_v, title="Network Topology", save_path=
     for i in range(num_agents):
         if i in att_v:
             node_colors.append('#FF4444')  # Red for attackers
-            node_sizes.append(800)         # Larger size for attackers
+            node_sizes.append(900)         # Larger size for attackers
         else:
             node_colors.append('#4444FF')  # Blue for honest agents
-            node_sizes.append(600)         # Normal size for honest agents
+            node_sizes.append(900)         # Normal size for honest agents
     
-    # Draw the network
+    # Draw the network with DIRECTED edges
     nx.draw_networkx_nodes(G, pos, 
                           node_color=node_colors,
                           node_size=node_sizes,
@@ -225,83 +255,95 @@ def plot_network_topology(neighbors, att_v, title="Network Topology", save_path=
                           edgecolors='black',
                           linewidths=2)
     
+    # Draw directed edges with arrows
     nx.draw_networkx_edges(G, pos,
                           edge_color='gray',
-                          width=1.5,
-                          alpha=0.7)
+                          width=3,
+                          alpha=0.7,
+                          arrows=True,           # Show arrows for direction
+                          arrowsize=18,          # Arrow size
+                          arrowstyle='->')       # Arrow style
     
     # Add labels with better formatting
     labels = {i: f'{i}' for i in range(num_agents)}
     nx.draw_networkx_labels(G, pos, labels,
-                           font_size=14,
+                           font_size=18,
                            font_weight='bold',
                            font_color='white')
     
     # Create custom legend
     honest_patch = plt.Line2D([0], [0], marker='o', color='w', 
-                             markerfacecolor='#4444FF', markersize=12, 
+                             markerfacecolor='#4444FF', markersize=18, 
                              label='Honest Agents', markeredgecolor='black', markeredgewidth=1)
     attack_patch = plt.Line2D([0], [0], marker='o', color='w',
-                             markerfacecolor='#FF4444', markersize=15,
+                             markerfacecolor='#FF4444', markersize=18,
                              label='Attacked Agents', markeredgecolor='black', markeredgewidth=1)
     
     plt.legend(handles=[honest_patch, attack_patch], 
-              loc='upper right', fontsize=12, frameon=True, fancybox=True, shadow=True)
+              loc='upper right', fontsize=18, frameon=True, fancybox=True, shadow=True)
     
     # Formatting for publication quality
-    plt.title(title, fontsize=16, fontweight='bold', pad=20)
+    plt.title(title + " (Directed Graph)", fontsize=18, fontweight='bold', pad=20)
     plt.axis('off')  # Remove axes for cleaner look
     
     # Add network statistics as text
     stats_text = f"Nodes: {G.number_of_nodes()}\n"
     stats_text += f"Edges: {G.number_of_edges()}\n"
     stats_text += f"Attackers: {len(att_v)}\n"
-    stats_text += f"Density: {nx.density(G):.3f}"
+    stats_text += f"Density: {nx.density(G):.3f}\n"
     
     plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes,
              verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
-             fontsize=10)
+             fontsize=18)
     
     plt.tight_layout()
     
     # Save if path provided
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight', 
+        plt.savefig(save_path, dpi=600, bbox_inches='tight', 
                    facecolor='white', edgecolor='none')
-        print(f"Network topology saved to: {save_path}")
+        print(f"Directed network topology saved to: {save_path}")
     
     plt.show()
     
-    # Print network analysis
+    # Print network analysis for directed graph
     print("\n" + "="*50)
-    print("NETWORK TOPOLOGY ANALYSIS")
+    print("DIRECTED NETWORK TOPOLOGY ANALYSIS")
     print("="*50)
     print(f"Number of nodes: {G.number_of_nodes()}")
-    print(f"Number of edges: {G.number_of_edges()}")
+    print(f"Number of directed edges: {G.number_of_edges()}")
     print(f"Network density: {nx.density(G):.3f}")
-    print(f"Average degree: {np.mean([d for n, d in G.degree()]):.2f}")
-    print(f"Diameter: {nx.diameter(G) if nx.is_connected(G) else 'Disconnected'}")
-    print(f"Average clustering: {nx.average_clustering(G):.3f}")
+    print(f"Average in-degree: {np.mean([d for n, d in G.in_degree()]):.2f}")
+    print(f"Average out-degree: {np.mean([d for n, d in G.out_degree()]):.2f}")
     
-    # Degree distribution
-    degrees = [d for n, d in G.degree()]
-    print(f"Degree distribution: min={min(degrees)}, max={max(degrees)}, std={np.std(degrees):.2f}")
-    
-    # Connectivity analysis
-    if nx.is_connected(G):
-        print("Network is connected ✓")
-        print(f"Average shortest path length: {nx.average_shortest_path_length(G):.3f}")
+    # Check if strongly connected
+    if nx.is_strongly_connected(G):
+        print("Network is strongly connected ✓")
+        print(f"Diameter: {nx.algorithms.distance_measures.diameter(G)}")
     else:
-        print("Network is disconnected ✗")
-        components = list(nx.connected_components(G))
-        print(f"Number of connected components: {len(components)}")
+        print("Network is NOT strongly connected ✗")
+        scc = list(nx.strongly_connected_components(G))
+        print(f"Number of strongly connected components: {len(scc)}")
+        print(f"Largest SCC size: {max(len(comp) for comp in scc)}")
+    
+    # In-degree and out-degree analysis
+    in_degrees = [d for n, d in G.in_degree()]
+    out_degrees = [d for n, d in G.out_degree()]
+    print(f"In-degree distribution: min={min(in_degrees)}, max={max(in_degrees)}, std={np.std(in_degrees):.2f}")
+    print(f"Out-degree distribution: min={min(out_degrees)}, max={max(out_degrees)}, std={np.std(out_degrees):.2f}")
+    
+    # Show neighbor information for clarity
+    print(f"\nNeighbor relationships (i receives from neighbors):")
+    for i, neighbor_list in enumerate(neighbors):
+        att_status = " (ATTACKED)" if i in att_v else ""
+        print(f"  Agent {i}{att_status}: receives from {neighbor_list}")
 
 def plot_enhanced_state(states, correct_consensus, att_v, agent_ids, 
                        title="W-MSR Algorithm", convergence_info=None):
     """Enhanced plotting with better visualization - Main state evolution only."""
     
     iterations = np.arange(states.shape[0])
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(20, 12))  # Even larger: increased from (16, 10) to (20, 12)
     
     # State evolution plot
     colors = plt.cm.tab10(np.linspace(0, 1, len(agent_ids)))
@@ -311,31 +353,37 @@ def plot_enhanced_state(states, correct_consensus, att_v, agent_ids,
         
         if agent_idx in att_v:
             plt.plot(iterations, states[:, col], 
-                    color='red', marker='v', linestyle='--', linewidth=2,
-                    label=f'Attacked Agent {agent}', markersize=6)
+                    color='red', marker='v', linestyle='--', linewidth=6,
+                    label=f'Attacked Agent {agent_idx}', markersize=12)
         else:
             plt.plot(iterations, states[:, col], 
                     color=colors[col], marker='o', linestyle='-', 
-                    label=f'Honest Agent {agent}', markersize=4, alpha=0.8)
+                    label=f'Honest Agent {agent_idx}', markersize=12, alpha=0.8)
     
     # Add consensus line
-    plt.axhline(correct_consensus, color='black', linestyle=':', linewidth=2,
+    plt.axhline(correct_consensus, color='black', linestyle=':', linewidth=6,
                label=f"True Consensus ({correct_consensus:.3f})")
     
     # Mark convergence point if available
     if convergence_info and convergence_info['converged']:
         conv_round = convergence_info['convergence_round']
-        plt.axvline(conv_round, color='green', linestyle='--', alpha=0.7,
+        # Convert to 0-indexed for plotting (conv_round is 1-indexed from algorithm)
+        conv_iteration = conv_round - 1
+        plt.axvline(conv_iteration, color='green', linestyle='--', alpha=0.8, linewidth=4,
                    label=f"Convergence (round {conv_round})")
         plt.axhline(convergence_info['final_consensus'], color='green', 
-                   linestyle='--', alpha=0.7,
+                   linestyle='--', alpha=0.8, linewidth=4,
                    label=f"Final Consensus ({convergence_info['final_consensus']:.3f})")
     
-    plt.title(f"{title} - State Evolution", fontsize=16, fontweight='bold')
-    plt.xlabel("Iteration", fontsize=12)
-    plt.ylabel("State Value", fontsize=12)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.title(f"{title} - State Evolution", fontsize=24, fontweight='bold')
+    plt.xlabel("Iteration", fontsize=22)
+    plt.ylabel("State Value", fontsize=22)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=18)
     plt.grid(True, alpha=0.3)
+    
+    # Increase tick label sizes
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
     
     plt.tight_layout()
     plt.show()
