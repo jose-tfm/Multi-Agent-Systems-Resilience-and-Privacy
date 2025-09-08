@@ -365,50 +365,95 @@ def process_single_trial(params):
     )
     honest = [u for u in hist_o['orig'] if u not in attacker]
     
-    # Extract subgraph matrices for saving
-    agents = list(range(1, N+1))
-    F_list = sorted(
-        [frozenset(c) for k in range(f+1) for c in itertools.combinations(agents, k)],
-        key=lambda S: (len(S), sorted(S))
-    )
+    # Extract subgraph matrices for saving - COMMENTED OUT
+    # agents = list(range(1, N+1))
+    # F_list = sorted(
+    #     [frozenset(c) for k in range(f+1) for c in itertools.combinations(agents, k)],
+    #     key=lambda S: (len(S), sorted(S))
+    # )
     
-    subgraph_matrices = {}
-    for i, F in enumerate(F_list):
-        surv = [j-1 for j in agents if j not in F]
-        if len(surv) > 0:
-            A_sub = row_normalize(A[np.ix_(surv, surv)].copy())
-            subgraph_matrices[f"F_{i}_{str(sorted(F))}"] = {
-                'matrix': A_sub,
-                'survivors': surv,
-                'removed': sorted(F)
-            }
+    # subgraph_matrices = {}
+    # for i, F in enumerate(F_list):
+    #     surv = [j-1 for j in agents if j not in F]
+    #     if len(surv) > 0:
+    #         A_sub = row_normalize(A[np.ix_(surv, surv)].copy())
+    #         subgraph_matrices[f"F_{i}_{str(sorted(F))}"] = {
+    #             'matrix': A_sub,
+    #             'survivors': surv,
+    #             'removed': sorted(F)
+    #         }
     
     # Vectorized detection rounds
     k_o = step_subgraph(filt_o['orig'], honest, T)
     k_p = step_subgraph(filt_p['opt'], honest, T)
     
-    # Optimized visualization with pre-allocated arrays
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
+    # Enhanced publication-quality visualization with cleaner design - larger size
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(22, 9))
     
-    # Vectorized plotting
-    for u in honest:
+    # Define publication-quality colors (colorblind-friendly palette)
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', 
+              '#bcbd22', '#17becf', '#aec7e8', '#ffbb78', '#98df8a', '#ff9896']
+    
+    # Select subset of agents for cleaner visualization (show every 2nd or 3rd agent)
+    max_agents_to_show = min(8, len(honest))  # Limit to 8 agents for clarity
+    agent_indices = np.linspace(0, len(honest)-1, max_agents_to_show, dtype=int)
+    selected_agents = [honest[i] for i in agent_indices]
+    
+    # Enhanced plotting with better styling and reduced clutter
+    for i, u in enumerate(selected_agents):
         hist_o_u = np.array(hist_o['orig'][u])
         hist_p_u = np.array(hist_p['opt'][u])
-        ax1.plot(hist_o_u, '--', label=f'x_{u}', linewidth=1)
-        ax2.plot(hist_p_u, '-', label=f'x_{u}', linewidth=1)
+        color = colors[i % len(colors)]
+        
+        # Original subplot with enhanced styling - extra thick lines and huge markers
+        ax1.plot(hist_o_u, '--', label=f'Agent {u}', linewidth=6.0, 
+                color=color, alpha=0.85, markersize=12, markevery=5, marker='o')
+        
+        # Optimized subplot with enhanced styling - extra thick lines and huge markers
+        ax2.plot(hist_p_u, '-', linewidth=6.0,
+                color=color, alpha=0.85, markersize=12, markevery=5, marker='s')
     
-    for ax, title in zip((ax1, ax2), ('Original', 'Optimized')):
-        ax.axhline(avg, ls=':', c='k', alpha=0.7)
-        ax.set_xlabel('k')
-        ax.set_title(f'{title} Trial {t}')
-        ax.grid(True, alpha=0.3)
+    # Enhanced formatting for both subplots
+    for ax, title in zip((ax1, ax2), ('Original Algorithm', 'Optimized Algorithm')):
+        # True consensus line with better styling - extra thick line
+        ax.axhline(avg, ls=':', color='black', linewidth=7.0, alpha=0.9, 
+                  label=f'True Consensus = {avg:.3f}')
+        
+        # Enhanced axis labels and title - extra large fonts
+        ax.set_xlabel('Iteration (k)', fontweight='bold', fontsize=26)
+        ax.set_ylabel('Agent State Value', fontweight='bold', fontsize=26)
+        ax.set_title(f'{title}', fontweight='bold', fontsize=30, pad=35)
+        
+        # Enhanced grid with subtle styling
+        ax.grid(True, alpha=0.3, linewidth=0.8, linestyle='-')
+        ax.set_axisbelow(True)
+        
+        # Clean spines design
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_linewidth(2)
+        ax.spines['bottom'].set_linewidth(2)
+        ax.spines['left'].set_color('#333333')
+        ax.spines['bottom'].set_color('#333333')
+        
+        # Enhanced tick formatting - extra large numbers
+        ax.tick_params(axis='both', which='major', labelsize=22, width=3, length=10)
+        ax.tick_params(axis='both', which='minor', labelsize=20, width=2, length=6)
     
-    ax1.legend(ncol=2, fontsize='small')
+    # Enhanced legend positioned outside plot area - extra large text
+    ax1.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), frameon=True, 
+              fancybox=False, shadow=False, framealpha=0.95, edgecolor='#333333', 
+              fontsize=18, ncol=1, columnspacing=0.8, handlelength=3.0)
     
-    # Optimized plot saving
+    # Main title for the entire figure - extra large font
+    fig.suptitle(f'Resilient Consensus Convergence Comparison (N={N}, Trial {t})', 
+                fontweight='bold', fontsize=32, y=0.96, color='#333333')
+    
+    # Enhanced plot saving with publication quality and space for external legend
     buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')  # Lower DPI for speed
+    fig.tight_layout(rect=[0, 0, 0.85, 0.94])  # Leave space for external legend and suptitle
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight', 
+               facecolor='white', edgecolor='none', pad_inches=0.3)  # More padding for legend
     plt.close(fig)
     buf.seek(0)
     
@@ -418,15 +463,15 @@ def process_single_trial(params):
         'Opt_subgraph_k': k_p,
         'plot': buf,
         'matrix': A,
-        'subgraphs': subgraph_matrices,
+        # 'subgraphs': subgraph_matrices,  # Commented out - no subgraph storage
         'honest': honest,
         'avg': avg
     }
 
 def run_trials(
-    N:int=50, p_edge:float=0.8, f:int=1,
-    eps:float=0.08, T:int=400,
-    seed0:int=4, trials:int=20,
+    N:int=50, p_edge:float=0.5, f:int=1,
+    eps:float=0.08, T:int=300,
+    seed0:int=4, trials:int=10,
     model:str='ER'
 ) -> DataFrame:
     """Optimized parallel trial runner with vectorization"""
@@ -447,7 +492,7 @@ def run_trials(
     
     # Pre-allocate arrays for better performance
     records = []
-    matrix_rows = []
+    # matrix_rows = []  # Commented out - no matrix storage
     
     # Process results efficiently
     print(f"Processing {len(results)} results...")
@@ -467,37 +512,37 @@ def run_trials(
             # Add plot to Excel
             ws_plots.add_image(OpenPyXLImage(result['plot']), f'A{2 + i*20}')
             
-            # Vectorized matrix data processing
-            A = result['matrix']
-            trial_num = result['trial']
+            # COMMENTED OUT - Matrix data processing (not needed for now)
+            # A = result['matrix']
+            # trial_num = result['trial']
             
-            # Create matrix rows for full network
-            for row_idx in range(N):
-                row_data = {'trial': trial_num, 'version': 'full', 'subgraph': 'none', 'row': row_idx}
-                # Vectorized column assignment
-                for col_idx in range(N):
-                    row_data[f'col_{col_idx}'] = A[row_idx, col_idx]
-                matrix_rows.append(row_data)
+            # # Create matrix rows for full network
+            # for row_idx in range(N):
+            #     row_data = {'trial': trial_num, 'version': 'full', 'subgraph': 'none', 'row': row_idx}
+            #     # Vectorized column assignment
+            #     for col_idx in range(N):
+            #         row_data[f'col_{col_idx}'] = A[row_idx, col_idx]
+            #     matrix_rows.append(row_data)
             
-            # Create matrix rows for each subgraph
-            for subgraph_name, subgraph_info in result['subgraphs'].items():
-                A_sub = subgraph_info['matrix']
-                survivors = subgraph_info['survivors']
-                removed = subgraph_info['removed']
+            # # Create matrix rows for each subgraph
+            # for subgraph_name, subgraph_info in result['subgraphs'].items():
+            #     A_sub = subgraph_info['matrix']
+            #     survivors = subgraph_info['survivors']
+            #     removed = subgraph_info['removed']
                 
-                for row_idx in range(A_sub.shape[0]):
-                    row_data = {
-                        'trial': trial_num, 
-                        'version': 'subgraph', 
-                        'subgraph': subgraph_name,
-                        'removed_agents': str(removed),
-                        'survivors': str(survivors),
-                        'row': row_idx
-                    }
-                    # Add matrix values
-                    for col_idx in range(A_sub.shape[1]):
-                        row_data[f'col_{col_idx}'] = A_sub[row_idx, col_idx]
-                    matrix_rows.append(row_data)
+            #     for row_idx in range(A_sub.shape[0]):
+            #         row_data = {
+            #             'trial': trial_num, 
+            #             'version': 'subgraph', 
+            #             'subgraph': subgraph_name,
+            #             'removed_agents': str(removed),
+            #             'survivors': str(survivors),
+            #             'row': row_idx
+            #         }
+            #         # Add matrix values
+            #         for col_idx in range(A_sub.shape[1]):
+            #             row_data[f'col_{col_idx}'] = A_sub[row_idx, col_idx]
+            #         matrix_rows.append(row_data)
         
         # Create DataFrames with vectorized operations
         df = DataFrame(records)
@@ -523,10 +568,10 @@ def run_trials(
         ws2 = wb.create_sheet('boxplot')
         ws2.add_image(OpenPyXLImage(buf), 'A1')
         
-        # Write matrices efficiently
-        if matrix_rows:  # Only create if we have data
-            mat_df = DataFrame(matrix_rows)
-            mat_df.to_excel(writer, sheet_name='all_matrices', index=False)
+        # COMMENTED OUT - Write matrices efficiently (not needed for now)
+        # if matrix_rows:  # Only create if we have data
+        #     mat_df = DataFrame(matrix_rows)
+        #     mat_df.to_excel(writer, sheet_name='all_matrices', index=False)
     
     print(f"Saved '{excel_filename}' with {len(records)} trials.")
     print(f"Performance summary - Orig median: {np.median(orig_data):.2f}, Opt median: {np.median(opt_data):.2f}")
@@ -539,8 +584,8 @@ if __name__ == '__main__':
     freeze_support()
     
     # Test only ER and WS network models (skip BA for now due to connectivity issues)
-    for model in ['ER', 'WS']:
+    for model in ['ER']:
         print(f"\nTesting {model} network model:")
-        df = run_trials(trials=50, model=model)
+        df = run_trials(trials=1, model=model)
         print(f"\n{model} Network Results:")
         print(df.describe())
